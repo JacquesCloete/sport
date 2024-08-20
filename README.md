@@ -5,7 +5,7 @@ The RL algorithms are implemented within the [OmniSafe](https://www.omnisafe.ai/
 
 ## Setup and Installation
 
-```
+```bash
 # Clone this repo
 git clone https://github.com/JacquesCloete/rl-safety-filters.git
 cd rl-safety-filters
