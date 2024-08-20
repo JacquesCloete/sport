@@ -1,0 +1,54 @@
+name: rl-safety-filters
+
+channels:
+  - pytorch
+  - nvidia/label/cuda-11.7.1
+  - defaults
+  - conda-forge
+
+dependencies:
+  - python = 3.10
+  - pip
+
+  # Optimization
+  - cvxpy
+
+  # Learning
+  - pytorch::pytorch >= 1.10.0  # sync with project.dependencies
+  - pytorch::torchvision
+  - pytorch::pytorch-mutex = *=*cuda*
+  - pip:
+      - safety-gymnasium >= 0.1
+  - tensorboard
+  - wandb
+
+  # Other dependencies
+  - numpy
+  - moviepy
+  - pyyaml
+  - typer
+  - seaborn
+  - pandas
+  - matplotlib-base
+  - typing-extensions
+
+  # Device select
+  - nvidia/label/cuda-11.7.1::cuda-toolkit = 11.7
+
+  # Documentation
+  - sphinx
+  - sphinx-autobuild
+  - sphinx-copybutton
+  - sphinxcontrib-spelling
+  - sphinxcontrib-bibtex
+  - sphinx-autodoc-typehints
+  - pyenchant
+  - hunspell-en
+  - myst-nb
+  - ipykernel
+  - pandoc
+  - docutils
+
+  # FFMPEG downgrades (newer versions cause problems when visualizing with omnisafe)
+  - ffmpeg = 4.2.2
+  - imageio-ffmpeg = 0.2.0
