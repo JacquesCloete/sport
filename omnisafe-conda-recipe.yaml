@@ -1,4 +1,4 @@
-name: rl-safety-filters
+name: rl-safety-filters-omnisafe
 
 channels:
   - pytorch
