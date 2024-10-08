@@ -15,7 +15,7 @@ git clone https://github.com/JacquesCloete/rl-safety-filters.git
 cd rl-safety-filters
 
 # Create a conda environment from the provided config file
-conda env create --file conda-recipe.yaml
+conda env create --file omnisafe-conda-recipe.yaml
 conda activate rl-safety-filters
 
 # Clone and install Jacques' fork of omnisafe 
