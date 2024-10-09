@@ -1,7 +1,7 @@
 # rl-safety-filters
 Code for Jacques' "RL Safety Filters" mini-project.
 
-We plan to eventually implement the RL algorithms within the [OmniSafe](https://www.omnisafe.ai/en/latest/) framework. Jacques has made a [fork](https://github.com/JacquesCloete/omnisafe) of the Omnisafe library for this.
+We may eventually implement the RL algorithms within the [OmniSafe](https://www.omnisafe.ai/en/latest/) framework. Jacques has made a [fork](https://github.com/JacquesCloete/omnisafe) of the Omnisafe library for this.
 
 ## Setup and Installation
 
