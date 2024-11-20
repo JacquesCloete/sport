@@ -1,4 +1,4 @@
-# rl_lvcf
+# rl_vcf
 **R**einforcement **L**earning with scenario-based **V**alidation and projection-based **C**onstrained **F**inetuning.
 
 ## Setup and Installation
