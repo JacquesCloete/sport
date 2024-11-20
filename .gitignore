@@ -1,7 +1,9 @@
-# Default ignored files
+__pycache__/
+*.pkl
 /results
 /build
 /dist
-/rl_vcf.egg-info
-.DS_Store
+/**/*.egg-info
+.idea/
 .vscode/
+.DS_Store

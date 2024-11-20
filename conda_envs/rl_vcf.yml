@@ -13,7 +13,7 @@ dependencies:
   - seaborn
   - pandas
   - matplotlib
-  - hydra
+  - hydra-core
 
   # RL Training
   - pytorch::pytorch
