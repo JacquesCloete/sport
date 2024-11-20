@@ -1,0 +1,7 @@
+# Default ignored files
+/results
+/build
+/dist
+/rl_vcf.egg-info
+.DS_Store
+.vscode/

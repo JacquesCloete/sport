@@ -1,0 +1,45 @@
+name: rl_vcf
+channels:
+  - pytorch
+  - nvidia/label/cuda-12.1.0
+  - conda-forge
+  - defaults
+dependencies:
+  # Basics
+  - python=3.10
+  - pip
+  - ipykernel
+  - numpy
+  - seaborn
+  - pandas
+  - matplotlib
+  - hydra
+
+  # RL Training
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - pytorch::pytorch-mutex = *=*cuda*
+
+  # RL Training Visualization
+  - tensorboard
+  - wandb
+
+  # RL Environments
+  - gymnasium[all]
+  - pip:
+      - gymnasium-robotics
+      - safety-gymnasium
+
+  # LTLf- and DFA-related packages
+  - pygraphviz
+  - pip:
+      - sympy==1.13.1
+      - pylogics
+      - pythomata
+      - ltlf2dfa
+
+  # Optimization (for rl-safety-filters)
+  - cvxpy
+
+  # Device select
+  - nvidia/label/cuda-12.1.0::cuda-toolkit = 12.1

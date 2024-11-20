@@ -1,0 +1,15 @@
+name: ltlf_dfa
+channels:
+  - conda-forge
+dependencies:
+  # Basics
+  - python=3.10
+  - pip
+  - numpy
+
+  # LTLf- and DFA-related packages
+  - pygraphviz
+  - pip:
+      - pylogics
+      - pythomata
+      - ltlf2dfa
