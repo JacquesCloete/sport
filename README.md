@@ -9,7 +9,7 @@ git clone https://github.com/JacquesCloete/rl-vcf.git
 cd rl-vcf
 
 # Create a conda environment from the provided config file
-conda env create --file conda_envs/rl_vcf.yml
+conda env create --file conda_envs/rl_vcf.yaml
 conda activate rl_vcf
 
 # Install this project

@@ -1,6 +1,7 @@
 __pycache__/
 *.pkl
-/results
+/**/multirun
+/**/outputs
 /build
 /dist
 /**/*.egg-info

@@ -9,11 +9,13 @@ dependencies:
   - python=3.10
   - pip
   - ipykernel
-  - numpy
+  - numpy=1.23.5 # fix incompatibility with gym bool8
   - seaborn
   - pandas
   - matplotlib
   - hydra-core
+  - pip:
+      - moviepy=1.0.3 # version 2.x.x breaks things
 
   # RL Training
   - pytorch::pytorch
@@ -33,7 +35,7 @@ dependencies:
   # LTLf- and DFA-related packages
   - pygraphviz
   - pip:
-      - sympy==1.13.1
+      - sympy==1.13.1 # newer versions conflict with torch
       - pylogics
       - pythomata
       - ltlf2dfa
