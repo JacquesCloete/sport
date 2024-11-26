@@ -93,7 +93,7 @@ class Agent(nn.Module):
 
 # Structured configs for type checking
 @dataclass
-class TrainingConfig:
+class TrainConfig:
     gym_id: str
     learning_rate: float
     anneal_lr: bool
@@ -128,7 +128,7 @@ class WandBConfig:
 
 @dataclass
 class PPOConfig:
-    training: TrainingConfig = field(default_factory=TrainingConfig)
+    train: TrainConfig = field(default_factory=TrainConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
 
 
@@ -150,7 +150,7 @@ def main(cfg: PPOConfig) -> None:
 
     # Convert config into format suitable for wandb
     wandb.config = OmegaConf.to_container(
-        cfg.training, resolve=True, throw_on_missing=True
+        cfg.train, resolve=True, throw_on_missing=True
     )
 
     # Set up wandb logger
@@ -171,29 +171,29 @@ def main(cfg: PPOConfig) -> None:
     writer.add_text(
         "config",
         "|param|value|\n|-|-|\n%s"
-        % ("\n".join([f"|{key}|{value}|" for key, value in cfg.training.items()])),
+        % ("\n".join([f"|{key}|{value}|" for key, value in cfg.train.items()])),
     )
 
     # Seeding
-    random.seed(cfg.training.seed)
-    np.random.seed(cfg.training.seed)
-    torch.manual_seed(cfg.training.seed)
-    torch.backends.cudnn.deterministic = cfg.training.torch_deterministic
+    random.seed(cfg.train.seed)
+    np.random.seed(cfg.train.seed)
+    torch.manual_seed(cfg.train.seed)
+    torch.backends.cudnn.deterministic = cfg.train.torch_deterministic
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() and cfg.training.cuda else "cpu"
+        "cuda" if torch.cuda.is_available() and cfg.train.cuda else "cpu"
     )
 
     # Environment setup
     envs = gym.vector.SyncVectorEnv(
         [
             make_env(
-                cfg.training.gym_id,
-                cfg.training.seed + i,
+                cfg.train.gym_id,
+                cfg.train.seed + i,
                 i,
-                cfg.training.capture_video,
+                cfg.train.capture_video,
             )
-            for i in range(cfg.training.num_envs)
+            for i in range(cfg.train.num_envs)
         ]
     )
 
@@ -202,45 +202,44 @@ def main(cfg: PPOConfig) -> None:
     print(agent)
 
     optimizer = optim.Adam(
-        agent.parameters(), lr=cfg.training.learning_rate, eps=cfg.training.epsilon
+        agent.parameters(), lr=cfg.train.learning_rate, eps=cfg.train.epsilon
     )
 
     # ALGO logic: Storage setup
     observations = torch.zeros(
-        (cfg.training.num_steps, cfg.training.num_envs)
-        + envs.single_observation_space.shape
+        (cfg.train.num_steps, cfg.train.num_envs) + envs.single_observation_space.shape
     ).to(device)
     actions = torch.zeros(
-        (cfg.training.num_steps, cfg.training.num_envs) + envs.single_action_space.shape
+        (cfg.train.num_steps, cfg.train.num_envs) + envs.single_action_space.shape
     ).to(device)
-    logprobs = torch.zeros((cfg.training.num_steps, cfg.training.num_envs)).to(device)
-    rewards = torch.zeros((cfg.training.num_steps, cfg.training.num_envs)).to(device)
-    dones = torch.zeros((cfg.training.num_steps, cfg.training.num_envs)).to(device)
-    values = torch.zeros((cfg.training.num_steps, cfg.training.num_envs)).to(device)
+    logprobs = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
+    rewards = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
+    dones = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
+    values = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
 
     # Start training
     global_step = 0
     start_time = time.time()
     next_obs = torch.Tensor(
-        envs.reset(seed=[cfg.training.seed + i for i in range(cfg.training.num_envs)])[
+        envs.reset(seed=[cfg.train.seed + i for i in range(cfg.train.num_envs)])[
             0  # observations are first element of env reset output
         ]
     ).to(device)
-    next_done = torch.zeros(cfg.training.num_envs).to(device)
+    next_done = torch.zeros(cfg.train.num_envs).to(device)
 
-    batch_size = int(cfg.training.num_steps * cfg.training.num_envs)
-    num_updates = cfg.training.total_timesteps // batch_size
-    minibatch_size = int(batch_size // cfg.training.num_minibatches)
+    batch_size = int(cfg.train.num_steps * cfg.train.num_envs)
+    num_updates = cfg.train.total_timesteps // batch_size
+    minibatch_size = int(batch_size // cfg.train.num_minibatches)
 
     for update in tqdm(range(1, num_updates + 1)):  # update networks using batch data
         # Annealing the learning rate
-        if cfg.training.anneal_lr:
+        if cfg.train.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates  # linear annealing (to 0)
-            lr_now = cfg.training.learning_rate * frac
+            lr_now = cfg.train.learning_rate * frac
             optimizer.param_groups[0]["lr"] = lr_now
 
-        for step in range(0, cfg.training.num_steps):  # collect data for batch
-            global_step += 1 * cfg.training.num_envs
+        for step in range(0, cfg.train.num_steps):  # collect data for batch
+            global_step += 1 * cfg.train.num_envs
             observations[step] = next_obs
             dones[step] = next_done
 
@@ -284,12 +283,12 @@ def main(cfg: PPOConfig) -> None:
         # bootstrap reward if not done (take value at next obs as end-of-roolout value)
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
-            if cfg.training.gae:
+            if cfg.train.gae:
                 # GAE, implemented as in the original PPO code (causes slightly different adv/ret!)
                 advantages = torch.zeros_like(rewards).to(device)
                 last_gae_lam = 0
-                for t in reversed(range(cfg.training.num_steps)):
-                    if t == cfg.training.num_steps - 1:
+                for t in reversed(range(cfg.train.num_steps)):
+                    if t == cfg.train.num_steps - 1:
                         next_non_terminal = 1.0 - next_done
                         next_values = next_value
                     else:
@@ -297,13 +296,13 @@ def main(cfg: PPOConfig) -> None:
                         next_values = values[t + 1]
                     delta = (
                         rewards[t]
-                        + cfg.training.gamma * next_values * next_non_terminal
+                        + cfg.train.gamma * next_values * next_non_terminal
                         - values[t]
                     )
                     advantages[t] = last_gae_lam = (
                         delta
-                        + cfg.training.gamma
-                        * cfg.training.gae_lambda
+                        + cfg.train.gamma
+                        * cfg.train.gae_lambda
                         * next_non_terminal
                         * last_gae_lam
                     )
@@ -311,16 +310,15 @@ def main(cfg: PPOConfig) -> None:
             else:
                 # the typical method of advantage calculation
                 returns = torch.zeros_like(rewards).to(device)
-                for t in reversed(range(cfg.training.num_steps)):
-                    if t == cfg.training.num_steps - 1:
+                for t in reversed(range(cfg.train.num_steps)):
+                    if t == cfg.train.num_steps - 1:
                         next_non_terminal = 1.0 - next_done
                         next_return = next_value
                     else:
                         next_non_terminal = 1.0 - dones[t + 1]
                         next_return = returns[t + 1]
                     returns[t] = (
-                        rewards[t]
-                        + cfg.training.gamma * next_non_terminal * next_return
+                        rewards[t] + cfg.train.gamma * next_non_terminal * next_return
                     )
                 advantages = returns - values
 
@@ -337,7 +335,7 @@ def main(cfg: PPOConfig) -> None:
         # Update actor and critic networks
         b_inds = np.arange(batch_size)
         clipfracs = []  # measures how often clipping is triggered
-        for epoch in range(cfg.training.update_epochs):
+        for epoch in range(cfg.train.update_epochs):
             np.random.shuffle(b_inds)  # shuffle batches
             for start in range(0, batch_size, minibatch_size):
                 end = start + minibatch_size
@@ -353,10 +351,10 @@ def main(cfg: PPOConfig) -> None:
                 with torch.no_grad():
                     # kl helps understand the aggressiveness of each update
                     # calculate approx_kl: http://joschu.net/blog/kl-approx.html
-                    old_approx_kl = (-logratios).mean()
+                    # old_approx_kl = (-logratios).mean()
                     approx_kl = ((ratios - 1.0) - logratios).mean()
                     clipfracs += [
-                        ((ratios - 1.0).abs() > cfg.training.clip_coef)
+                        ((ratios - 1.0).abs() > cfg.train.clip_coef)
                         .float()
                         .mean()
                         .cpu()
@@ -364,7 +362,7 @@ def main(cfg: PPOConfig) -> None:
                     ]
 
                 mb_advantages = b_advantages[mb_inds]
-                if cfg.training.norm_adv:
+                if cfg.train.norm_adv:
                     # Normalize advantages
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (
                         mb_advantages.std() + 1e-8
@@ -373,18 +371,18 @@ def main(cfg: PPOConfig) -> None:
                 # Clipped actor loss
                 pg_loss1 = -mb_advantages * ratios
                 pg_loss2 = -mb_advantages * torch.clamp(
-                    ratios, 1 - cfg.training.clip_coef, 1 + cfg.training.clip_coef
+                    ratios, 1 - cfg.train.clip_coef, 1 + cfg.train.clip_coef
                 )
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Clipped value loss
                 new_values = new_values.view(-1)
-                if cfg.training.clip_vloss:
+                if cfg.train.clip_vloss:
                     v_loss_unclipped = (new_values - b_returns[mb_inds]) ** 2
                     v_clipped = b_values[mb_inds] + torch.clamp(
                         new_values - b_values[mb_inds],
-                        -cfg.training.clip_coef,
-                        cfg.training.clip_coef,
+                        -cfg.train.clip_coef,
+                        cfg.train.clip_coef,
                     )
                     v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
                     v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
@@ -398,23 +396,23 @@ def main(cfg: PPOConfig) -> None:
                 # Combined loss
                 loss = (
                     pg_loss
-                    + v_loss * cfg.training.vf_coef
-                    - entropy_loss * cfg.training.ent_coef
+                    + v_loss * cfg.train.vf_coef
+                    - entropy_loss * cfg.train.ent_coef
                 )
 
                 # Update networks
                 optimizer.zero_grad()
                 loss.backward()
                 # Note: clip gradient norm for stabilitiy
-                nn.utils.clip_grad_norm_(agent.parameters(), cfg.training.max_grad_norm)
+                nn.utils.clip_grad_norm_(agent.parameters(), cfg.train.max_grad_norm)
                 optimizer.step()
 
             # Stop the policy update for the batch if the KL divergence has grown too large so as
             # to exceed a target KL divergence threshold
             # (could alternatively implement at the minibatch level)
             # spinningup uses 0.015
-            if cfg.training.target_kl is not None:
-                if approx_kl > cfg.training.target_kl:
+            if cfg.train.target_kl is not None:
+                if approx_kl > cfg.train.target_kl:
                     break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
