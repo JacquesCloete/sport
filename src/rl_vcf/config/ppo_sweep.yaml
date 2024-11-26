@@ -1,0 +1,17 @@
+program: ppo.py
+name: sweepdemo
+method: grid
+metric:
+  goal: maximize
+  name: charts/episodic_return
+parameters:
+  train.target_kl:
+    values: [null, 0.015]
+  wandb.group:
+    value: "test_sweep"
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}

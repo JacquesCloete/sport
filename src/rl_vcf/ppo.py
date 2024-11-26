@@ -124,6 +124,7 @@ class WandBConfig:
     track: bool
     project: int
     entity: str | None
+    group: str | None
 
 
 @dataclass
@@ -137,6 +138,10 @@ class PPOConfig:
 def main(cfg: PPOConfig) -> None:
     # Print the config
     print(OmegaConf.to_yaml(cfg))
+
+    # Note: hydra sweeping doesn't work very well with wandb logging
+    # It is instead best to use wandb sweeping
+    # I've included the functionality for hydra sweeping anyway
 
     # Get name for each job
     if HydraConfig.get().mode == RunMode.MULTIRUN:
@@ -158,6 +163,7 @@ def main(cfg: PPOConfig) -> None:
         wandb.init(
             project=cfg.wandb.project,
             entity=cfg.wandb.entity,
+            group=cfg.wandb.group,
             sync_tensorboard=True,
             config=wandb.config,
             name=run_name,
@@ -411,7 +417,10 @@ def main(cfg: PPOConfig) -> None:
             # to exceed a target KL divergence threshold
             # (could alternatively implement at the minibatch level)
             # spinningup uses 0.015
-            if cfg.train.target_kl is not None:
+
+            if cfg.train.target_kl == "None":  # null becomes "None" str in wandb sweep
+                pass
+            elif cfg.train.target_kl is not None:
                 if approx_kl > cfg.train.target_kl:
                     break
 

@@ -1,0 +1,17 @@
+program: ppo.py
+name: sweep_over_seeds
+method: grid
+parameters:
+  train.seed:
+    distribution: q_uniform
+    max: 40
+    min: 0
+    q: 10
+  wandb.group:
+    value: "sweep_over_seeds"
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
