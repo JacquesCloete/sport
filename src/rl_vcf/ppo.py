@@ -15,18 +15,24 @@ from hydra.types import RunMode
 from omegaconf import OmegaConf
 from torch.distributions import Categorical
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 
-def make_env(gym_id: gym.Env, seed: int, idx: int, capture_video: bool) -> gym.Env:
+def make_env(gym_id: str, seed: int, idx: int, capture_video: bool) -> gym.Env:
     """Create the environment."""
 
     def thunk():
-        env = gym.make(gym_id)
+        env = gym.make(
+            gym_id,
+            render_mode="rgb_array",  # need to set render mode for video recording
+        )
         env = gym.wrappers.RecordEpisodeStatistics(env)
         if capture_video:
-            if idx == 0:
+            if idx == 0:  # record only the environment with idx 0
                 env = gym.wrappers.RecordVideo(
-                    env, "videos", episode_trigger=lambda t: t % 1000 == 0
+                    env,
+                    "videos",
+                    episode_trigger=lambda t: t % 100 == 0,  # every 100 episodes
                 )
         # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
         env.action_space.seed(seed)
@@ -226,7 +232,7 @@ def main(cfg: PPOConfig) -> None:
     num_updates = cfg.training.total_timesteps // batch_size
     minibatch_size = int(batch_size // cfg.training.num_minibatches)
 
-    for update in range(1, num_updates + 1):  # update networks using batch data
+    for update in tqdm(range(1, num_updates + 1)):  # update networks using batch data
         # Annealing the learning rate
         if cfg.training.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates  # linear annealing (to 0)
@@ -260,9 +266,9 @@ def main(cfg: PPOConfig) -> None:
                 # a dict of lists, each list containing a mix of different types, including dicts??
                 for item in val:
                     if isinstance(item, dict) and "episode" in item.keys():
-                        print(
-                            f"global_step={global_step}, episodic_return={item['episode']['r']}"
-                        )
+                        # print(
+                        #     f"global_step={global_step}, episodic_return={item['episode']['r']}"
+                        # )
                         writer.add_scalar(
                             "charts/episodic_return",
                             item["episode"]["r"],
@@ -426,7 +432,7 @@ def main(cfg: PPOConfig) -> None:
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        print("SPS : ", int(global_step / (time.time() - start_time)))
+        # print("SPS : ", int(global_step / (time.time() - start_time)))
         writer.add_scalar(
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
         )
