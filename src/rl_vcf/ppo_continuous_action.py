@@ -37,13 +37,13 @@ def make_env(gym_id: str, seed: int, idx: int, capture_video: bool) -> gym.Env:
         # Preprocessing from original PPO code
         env = gym.wrappers.ClipAction(env)  # tanh squashing works better than this
         env = gym.wrappers.NormalizeObservation(env)  # can help performance a lot!
-        env = gym.wrappers.TransformObservation(
-            env, lambda obs: np.clip(obs, -10.0, 10.0)
-        )  # observation clipping after normalization doesn't usually help but sometimes can
+        # env = gym.wrappers.TransformObservation(
+        #     env, lambda obs: np.clip(obs, -10.0, 10.0)
+        # )  # observation clipping after normalization doesn't usually help but sometimes can
         env = gym.wrappers.NormalizeReward(env)  # can help performance a lot!
-        env = gym.wrappers.TransformReward(
-            env, lambda rew: np.clip(rew, -10.0, 10.0)
-        )  # reward clipping after normalization has no evidence of being helpful
+        # env = gym.wrappers.TransformReward(
+        #     env, lambda rew: np.clip(rew, -10.0, 10.0)
+        # )  # reward clipping after normalization has no evidence of being helpful
         # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
