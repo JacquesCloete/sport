@@ -30,6 +30,8 @@ dependencies:
   - pygame # doesn't install automatically as it should with gymnasium?
   - gymnasium[all]
   - pip:
+      - glfw
+      - mujoco
       - gymnasium-robotics
       - safety-gymnasium
 

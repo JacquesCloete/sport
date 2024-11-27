@@ -1,0 +1,33 @@
+hydra:
+  job:
+    chdir: true
+
+train:
+  gym_id: "HalfCheetah-v4"
+  learning_rate: 3.0e-4
+  anneal_lr: true
+  adam_epsilon: 1.0e-5
+  seed: 0
+  total_timesteps: 2000000
+  torch_deterministic: true
+  cuda: true
+  capture_video: true
+  num_envs: 1
+  num_steps: 2048
+  gae: true
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 32
+  update_epochs: 10
+  norm_adv: true
+  clip_coef: 0.2
+  clip_vloss: true
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  target_kl: null
+wandb:
+  track: true
+  project: "rl_vcf"
+  entity: null
+  group: null

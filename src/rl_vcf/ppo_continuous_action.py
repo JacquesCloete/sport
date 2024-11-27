@@ -13,7 +13,7 @@ import wandb
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import OmegaConf
-from torch.distributions import Categorical
+from torch.distributions import Normal
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -34,6 +34,16 @@ def make_env(gym_id: str, seed: int, idx: int, capture_video: bool) -> gym.Env:
                     "videos",
                     episode_trigger=lambda t: t % 100 == 0,  # every 100 episodes
                 )
+        # Preprocessing from original PPO code
+        env = gym.wrappers.ClipAction(env)  # tanh squashing works better than this
+        env = gym.wrappers.NormalizeObservation(env)  # can help performance a lot!
+        env = gym.wrappers.TransformObservation(
+            env, lambda obs: np.clip(obs, -10.0, 10.0)
+        )  # observation clipping after normalization doesn't usually help but sometimes can
+        env = gym.wrappers.NormalizeReward(env)  # can help performance a lot!
+        env = gym.wrappers.TransformReward(
+            env, lambda rew: np.clip(rew, -10.0, 10.0)
+        )  # reward clipping after normalization has no evidence of being helpful
         # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
@@ -45,8 +55,8 @@ def make_env(gym_id: str, seed: int, idx: int, capture_video: bool) -> gym.Env:
 def layer_init(layer: nn.Linear, std=np.sqrt(2), bias_const=0.0) -> nn.Linear:
     """Initialize layer weights."""
     # Note: different to standard torch initialization methods
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
+    torch.nn.init.orthogonal_(layer.weight, std)  # outperforms default init
+    torch.nn.init.constant_(layer.bias, bias_const)  # start with 0 bias
     return layer
 
 
@@ -55,6 +65,7 @@ class Agent(nn.Module):
 
     def __init__(self, envs: gym.vector.SyncVectorEnv) -> None:
         super(Agent, self).__init__()
+        # separate policy and value networks generally lead to better performance
         self.critic = nn.Sequential(
             layer_init(
                 nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
@@ -64,16 +75,21 @@ class Agent(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 1), std=1.0),  # output layer uses different std!
         )
-        self.actor = nn.Sequential(
+        self.actor_mean = nn.Sequential(
             layer_init(
                 nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
             ),
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, envs.single_action_space.n), std=0.01),
+            layer_init(
+                nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.01
+            ),
             # std of 0.01 ensures the layer parameters have similar scalar values so probability of picking each action will be similar
-            # using np.array(envs.single_action_space.shape).prod() doesn't work here?
+        )
+        # state-independent std in original PPO code
+        self.actor_logstd = nn.Parameter(
+            torch.zeros(1, np.prod(envs.single_action_space.shape))
         )
 
     def get_value(self, x: torch.Tensor) -> torch.Tensor:
@@ -84,11 +100,14 @@ class Agent(nn.Module):
         self, x: torch.Tensor, action=None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample action from actor and get value from critic."""
-        logits = self.actor(x)
-        probs = Categorical(logits=logits)
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
         if action is None:
             action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), self.critic(x)
+        # Note that total log prob is sum of log prob of each action component
+        return action, probs.log_prob(action).sum(1), probs.entropy(), self.critic(x)
 
 
 # Structured configs for type checking
@@ -97,7 +116,7 @@ class TrainConfig:
     gym_id: str
     learning_rate: float
     anneal_lr: bool
-    epsilon: float
+    adam_epsilon: float
     seed: int
     total_timesteps: int
     torch_deterministic: bool
@@ -134,7 +153,9 @@ class PPOConfig:
 
 
 # Need to run everything inside hydra main function
-@hydra.main(config_path="config", config_name="ppo", version_base="1.3")
+@hydra.main(
+    config_path="config", config_name="ppo_continuous_action", version_base="1.3"
+)
 def main(cfg: PPOConfig) -> None:
     # Print the config
     print(OmegaConf.to_yaml(cfg))
@@ -191,6 +212,7 @@ def main(cfg: PPOConfig) -> None:
     )
 
     # Environment setup
+    # Note: vectorized envs
     envs = gym.vector.SyncVectorEnv(
         [
             make_env(
@@ -208,8 +230,8 @@ def main(cfg: PPOConfig) -> None:
     print(agent)
 
     optimizer = optim.Adam(
-        agent.parameters(), lr=cfg.train.learning_rate, eps=cfg.train.epsilon
-    )
+        agent.parameters(), lr=cfg.train.learning_rate, eps=cfg.train.adam_epsilon
+    )  # default torch epsilon of 1e-8 found to be better
 
     # ALGO logic: Storage setup
     observations = torch.zeros(
@@ -240,11 +262,13 @@ def main(cfg: PPOConfig) -> None:
     for update in tqdm(range(1, num_updates + 1)):  # update networks using batch data
         # Annealing the learning rate
         if cfg.train.anneal_lr:
+            # annealing helps agents obtain higher episodic return
             frac = 1.0 - (update - 1.0) / num_updates  # linear annealing (to 0)
             lr_now = cfg.train.learning_rate * frac
             optimizer.param_groups[0]["lr"] = lr_now
 
-        for step in range(0, cfg.train.num_steps):  # collect data for batch
+        for step in range(0, cfg.train.num_steps):  # collect batch data
+            # note the batch data gets overwritten in each update loop
             global_step += 1 * cfg.train.num_envs
             observations[step] = next_obs
             dones[step] = next_done
@@ -291,10 +315,12 @@ def main(cfg: PPOConfig) -> None:
             next_value = agent.get_value(next_obs).reshape(1, -1)
             if cfg.train.gae:
                 # GAE, implemented as in the original PPO code (causes slightly different adv/ret!)
+                # performs better than N-step returns
                 advantages = torch.zeros_like(rewards).to(device)
                 last_gae_lam = 0
                 for t in reversed(range(cfg.train.num_steps)):
                     if t == cfg.train.num_steps - 1:
+                        # bootstrap if not done
                         next_non_terminal = 1.0 - next_done
                         next_values = next_value
                     else:
@@ -312,12 +338,15 @@ def main(cfg: PPOConfig) -> None:
                         * next_non_terminal
                         * last_gae_lam
                     )
-                returns = advantages + values
+                returns = (
+                    advantages + values
+                )  # corresponds to TD(lambda) for value estimation
             else:
                 # the typical method of advantage calculation
                 returns = torch.zeros_like(rewards).to(device)
                 for t in reversed(range(cfg.train.num_steps)):
                     if t == cfg.train.num_steps - 1:
+                        # bootstrap if not done
                         next_non_terminal = 1.0 - next_done
                         next_return = next_value
                     else:
@@ -342,14 +371,16 @@ def main(cfg: PPOConfig) -> None:
         b_inds = np.arange(batch_size)
         clipfracs = []  # measures how often clipping is triggered
         for epoch in range(cfg.train.update_epochs):
-            np.random.shuffle(b_inds)  # shuffle batches
+            np.random.shuffle(b_inds)  # shuffle data in batch
             for start in range(0, batch_size, minibatch_size):
+                # update using each minibatch (don't use the entire batch for one update!)
+                # fetch minibatches by iterating through batch (don't randomly sample data!)
                 end = start + minibatch_size
                 mb_inds = b_inds[start:end]  # get minibatch indices for update step
 
                 # Get policy ratio for clipping
                 _, new_logprobs, entropies, new_values = agent.get_action_and_value(
-                    b_observations[mb_inds], b_actions.long()[mb_inds]
+                    b_observations[mb_inds], b_actions[mb_inds]
                 )
                 logratios = new_logprobs - b_logprobs[mb_inds]
                 ratios = logratios.exp()
@@ -358,6 +389,7 @@ def main(cfg: PPOConfig) -> None:
                     # kl helps understand the aggressiveness of each update
                     # calculate approx_kl: http://joschu.net/blog/kl-approx.html
                     # old_approx_kl = (-logratios).mean()
+                    # the below implementation is unbiased and has less variance
                     approx_kl = ((ratios - 1.0) - logratios).mean()
                     clipfracs += [
                         ((ratios - 1.0).abs() > cfg.train.clip_coef)
@@ -369,7 +401,8 @@ def main(cfg: PPOConfig) -> None:
 
                 mb_advantages = b_advantages[mb_inds]
                 if cfg.train.norm_adv:
-                    # Normalize advantages
+                    # Normalize advantages, at minibatch level
+                    # Doesn't help much
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (
                         mb_advantages.std() + 1e-8
                     )
@@ -382,6 +415,8 @@ def main(cfg: PPOConfig) -> None:
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Clipped value loss
+                # Note: no evidence of clipping helping with performance
+                # In fact, it can even hurt performance!
                 new_values = new_values.view(-1)
                 if cfg.train.clip_vloss:
                     v_loss_unclipped = (new_values - b_returns[mb_inds]) ** 2
@@ -397,6 +432,9 @@ def main(cfg: PPOConfig) -> None:
                     v_loss = 0.5 * ((new_values - b_returns[mb_inds]) ** 2).mean()
 
                 # Original PPO also includes entropy regularization
+                # Note: no evidence of entropy regularization helping with performance
+                # for continuous control environments
+                # But we might find it helpful for encouraging an exploratory policy
                 entropy_loss = entropies.mean()
 
                 # Combined loss
@@ -409,7 +447,8 @@ def main(cfg: PPOConfig) -> None:
                 # Update networks
                 optimizer.zero_grad()
                 loss.backward()
-                # Note: clip gradient norm for stabilitiy
+                # Note: clip gradient norm for stability
+                # Slightly improves performance
                 nn.utils.clip_grad_norm_(agent.parameters(), cfg.train.max_grad_norm)
                 optimizer.step()
 
