@@ -6,7 +6,7 @@ train:
   gym_id: "CartPole-v1"
   learning_rate: 2.5e-4
   anneal_lr: true
-  adam_epsilon: 1.0e-5
+  adam_epsilon: 1.0e-8
   seed: 0
   total_timesteps: 250000
   torch_deterministic: true
@@ -21,7 +21,7 @@ train:
   update_epochs: 4
   norm_adv: true
   clip_coef: 0.2
-  clip_vloss: true
+  clip_vloss: false
   ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
