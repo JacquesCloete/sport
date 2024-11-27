@@ -192,6 +192,7 @@ def main(cfg: PPOConfig) -> None:
     )
 
     # Environment setup
+    # Note: vectorized envs
     envs = gym.vector.SyncVectorEnv(
         [
             make_env(

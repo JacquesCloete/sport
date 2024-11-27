@@ -431,7 +431,7 @@ def main(cfg: PPOConfig) -> None:
                 else:
                     v_loss = 0.5 * ((new_values - b_returns[mb_inds]) ** 2).mean()
 
-                # Original PPO also includes entropy regularization
+                # Original PPO also includes entropy regularization to improve exploration
                 # Note: no evidence of entropy regularization helping with performance
                 # for continuous control environments
                 # But we might find it helpful for encouraging an exploratory policy
