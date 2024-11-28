@@ -2,7 +2,8 @@ __pycache__/
 *.pkl
 /**/multirun
 /**/outputs
-/src/rl_vcf/wandb
+/**/wandb
+!/src/rl_vcf/config/wandb
 /build
 /dist
 /**/*.egg-info
