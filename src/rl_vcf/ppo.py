@@ -13,61 +13,11 @@ import wandb
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import OmegaConf
-from torch.distributions import Categorical
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+from rl_vcf.rl.algos.ppo.core import MLPActorCritic
 from rl_vcf.rl.utils.make_env import make_env
-
-
-def layer_init(layer: nn.Linear, std=np.sqrt(2), bias_const=0.0) -> nn.Linear:
-    """Initialize layer weights."""
-    # Note: different to standard torch initialization methods
-    torch.nn.init.orthogonal_(layer.weight, std)  # outperforms default init
-    torch.nn.init.constant_(layer.bias, bias_const)  # start with 0 bias
-    return layer
-
-
-class Agent(nn.Module):
-    """Agent class."""
-
-    def __init__(self, envs: gym.vector.SyncVectorEnv) -> None:
-        super(Agent, self).__init__()
-        # separate policy and value networks generally lead to better performance
-        self.critic = nn.Sequential(
-            layer_init(
-                nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
-            ),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),  # output layer uses different std!
-        )
-        self.actor = nn.Sequential(
-            layer_init(
-                nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
-            ),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, envs.single_action_space.n), std=0.01),
-            # std of 0.01 ensures the layer parameters have similar scalar values so probability of picking each action will be similar
-            # using np.array(envs.single_action_space.shape).prod() doesn't work here?
-        )
-
-    def get_value(self, x: torch.Tensor) -> torch.Tensor:
-        """Get value from critic."""
-        return self.critic(x)
-
-    def get_action_and_value(
-        self, x: torch.Tensor, action=None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Sample action from actor and get value from critic."""
-        logits = self.actor(x)
-        probs = Categorical(logits=logits)
-        if action is None:
-            action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), self.critic(x)
 
 
 # Structured configs for type checking
@@ -97,6 +47,8 @@ class TrainConfig:
     vf_coef: float
     max_grad_norm: float
     target_kl: float
+    hidden_sizes: tuple[int]
+    activation: str
 
 
 @dataclass
@@ -114,7 +66,7 @@ class PPOConfig:
 
 
 # Need to run everything inside hydra main function
-@hydra.main(config_path="config", config_name="ppo_discrete_action", version_base="1.3")
+@hydra.main(config_path="config", config_name="ppo", version_base="1.3")
 def main(cfg: PPOConfig) -> None:
     # Print the config
     print(OmegaConf.to_yaml(cfg))
@@ -186,7 +138,13 @@ def main(cfg: PPOConfig) -> None:
     )
 
     # Create agent
-    agent = Agent(envs).to(device)
+    # agent = Agent(envs).to(device)
+    agent = MLPActorCritic(
+        envs.single_observation_space,
+        envs.single_action_space,
+        cfg.train.hidden_sizes,
+        eval("nn." + cfg.train.activation + "()"),
+    ).to(device)
     print(agent)
 
     optimizer = optim.Adam(
@@ -340,7 +298,7 @@ def main(cfg: PPOConfig) -> None:
 
                 # Get policy ratio for clipping
                 _, new_logprobs, entropies, new_values = agent.get_action_and_value(
-                    b_observations[mb_inds], b_actions.long()[mb_inds]
+                    b_observations[mb_inds], b_actions[mb_inds]
                 )
                 logratios = new_logprobs - b_logprobs[mb_inds]
                 ratios = logratios.exp()

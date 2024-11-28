@@ -17,39 +17,7 @@ from torch.distributions import Normal
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-
-def make_env(gym_id: str, seed: int, idx: int, capture_video: bool) -> gym.Env:
-    """Create the environment."""
-
-    def thunk():
-        env = gym.make(
-            gym_id,
-            render_mode="rgb_array",  # need to set render mode for video recording
-        )
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        if capture_video:
-            if idx == 0:  # record only the environment with idx 0
-                env = gym.wrappers.RecordVideo(
-                    env,
-                    "videos",
-                    episode_trigger=lambda t: t % 100 == 0,  # every 100 episodes
-                )
-        # Preprocessing from original PPO code
-        env = gym.wrappers.ClipAction(env)  # tanh squashing works better than this
-        env = gym.wrappers.NormalizeObservation(env)  # can help performance a lot!
-        # env = gym.wrappers.TransformObservation(
-        #     env, lambda obs: np.clip(obs, -10.0, 10.0)
-        # )  # observation clipping after normalization doesn't usually help but sometimes can
-        env = gym.wrappers.NormalizeReward(env)  # can help performance a lot!
-        # env = gym.wrappers.TransformReward(
-        #     env, lambda rew: np.clip(rew, -10.0, 10.0)
-        # )  # reward clipping after normalization has no evidence of being helpful
-        # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
-
-    return thunk
+from rl_vcf.rl.utils.make_env import make_env
 
 
 def layer_init(layer: nn.Linear, std=np.sqrt(2), bias_const=0.0) -> nn.Linear:
@@ -122,6 +90,7 @@ class TrainConfig:
     torch_deterministic: bool
     cuda: bool
     capture_video: bool
+    video_ep_interval: int
     num_envs: int
     num_steps: int
     gae: bool
@@ -217,9 +186,10 @@ def main(cfg: PPOConfig) -> None:
         [
             make_env(
                 cfg.train.gym_id,
-                cfg.train.seed + i,
                 i,
+                cfg.train.seed + i,
                 cfg.train.capture_video,
+                cfg.train.video_ep_interval,
             )
             for i in range(cfg.train.num_envs)
         ]

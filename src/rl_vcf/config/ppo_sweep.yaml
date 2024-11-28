@@ -1,4 +1,4 @@
-program: ppo_discrete_action.py
+program: ppo.py
 name: sweepdemo
 method: grid
 metric:
