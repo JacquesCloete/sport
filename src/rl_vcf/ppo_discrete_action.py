@@ -102,7 +102,7 @@ class TrainConfig:
 @dataclass
 class WandBConfig:
     track: bool
-    project: int
+    project: str | None
     entity: str | None
     group: str | None
 

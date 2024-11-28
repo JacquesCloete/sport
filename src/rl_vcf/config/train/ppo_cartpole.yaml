@@ -1,0 +1,26 @@
+gym_id: "CartPole-v1"
+learning_rate: 2.5e-4
+anneal_lr: true
+adam_epsilon: 1.0e-8
+seed: 0
+total_timesteps: 250000
+torch_deterministic: true
+cuda: true
+capture_video: true
+video_ep_interval: 100
+num_envs: 4
+num_steps: 128
+gae: true
+gamma: 0.99
+gae_lambda: 0.95
+num_minibatches: 4
+update_epochs: 4
+norm_adv: true
+clip_coef: 0.2
+clip_vloss: false
+ent_coef: 0.01
+vf_coef: 0.5
+max_grad_norm: 0.5
+target_kl: null
+hidden_sizes: [64, 64]
+activation: "Tanh"
