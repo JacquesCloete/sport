@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from gymnasium.spaces import Box
 from torch.distributions import Normal
-from torch.nn.functional import softplus
 
 
 class ReplayBuffer:
@@ -102,30 +101,28 @@ class MLPSquashedGaussianActor(nn.Module):
         net_out = self.net(obs)
         mu = self.mu_layer(net_out)
         log_std = self.log_std_layer(net_out)
-        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        # log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        log_std = torch.tanh(log_std)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         std = torch.exp(log_std)
 
         # Pre-squash distribution and sample
         pi_distribution = Normal(mu, std)
         if deterministic:
-            pi_action = mu
+            x_t = mu
         else:
-            pi_action = pi_distribution.rsample()
+            x_t = pi_distribution.rsample()
+        y_t = torch.tanh(x_t)
+        pi_action = y_t * self.act_scale + self.act_bias
 
         if with_log_prob:
-            # Compute logprob from Gaussian, and then apply correction for Tanh squashing.
-            # NOTE: The correction formula is a little bit magic. To get an understanding
-            # of where it comes from, check out the original SAC paper (arXiv 1801.01290)
-            # and look in appendix C. This is a more numerically-stable equivalent to Eq 21.
-            logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
-            logp_pi -= (2 * (np.log(2) - pi_action - softplus(-2 * pi_action))).sum(
-                axis=1
-            )
+            logp_pi = pi_distribution.log_prob(x_t)
+            # Enforcing action bounds
+            logp_pi -= torch.log(self.act_scale * (1 - y_t.pow(2)) + 1e-6)
+            logp_pi = logp_pi.sum(1, keepdim=True).squeeze(-1)
+            # why doesn't cleanrl squeeze?
         else:
             logp_pi = None
-
-        pi_action = torch.tanh(pi_action)
-        pi_action = pi_action * self.act_scale + self.act_bias
 
         return pi_action, logp_pi
 
@@ -166,10 +163,10 @@ class MLPActorCritic(nn.Module):
         obs_dim = np.array(observation_space.shape).prod()
         act_dim = np.prod(action_space.shape)
         act_scale = torch.tensor(
-            (action_space.high - action_space.low) / 2.0, dtype=torch.float32
+            (action_space.high - action_space.low) / 2.0,  # dtype=torch.float32
         )
         act_bias = torch.tensor(
-            (action_space.high + action_space.low) / 2.0, dtype=torch.float32
+            (action_space.high + action_space.low) / 2.0,  # dtype=torch.float32
         )
 
         # Build policy and value functions

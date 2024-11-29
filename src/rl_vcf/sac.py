@@ -231,12 +231,9 @@ def main(cfg: SACConfig) -> None:
                     - ent_coeff * next_log_pi
                 )
                 # Target Q value at current time step (from Bellman equation)
-                q_value_targ = (
-                    data["rew"].flatten()
-                    + (1 - data["done"].flatten())
-                    * cfg.train.gamma
-                    * min_q_value_next_targ
-                )
+                q_value_targ = data["rew"].flatten() + (
+                    1 - data["done"].flatten()
+                ) * cfg.train.gamma * (min_q_value_next_targ).view(-1)
 
             q1_value = agent.q1.forward(data["obs"], data["act"]).view(-1)
             q2_value = agent.q2.forward(data["obs"], data["act"]).view(-1)
@@ -264,7 +261,7 @@ def main(cfg: SACConfig) -> None:
                     q2_value_pi = agent.q2.forward(data["obs"], pi)
                     min_q_value_pi = torch.min(q1_value_pi, q2_value_pi)
                     # Entropy-regularized policy loss function
-                    policy_loss = (ent_coeff * log_pi - min_q_value_pi).mean()
+                    policy_loss = ((ent_coeff * log_pi) - min_q_value_pi).mean()
 
                     # Update policy
                     policy_optimizer.zero_grad()
@@ -293,7 +290,7 @@ def main(cfg: SACConfig) -> None:
             # Target Q networks update
             if global_step % cfg.train.targ_net_freq == 0:
                 for param, targ_param in zip(
-                    agent.q1.parameters(), agent_targ.q2.parameters()
+                    agent.q1.parameters(), agent_targ.q1.parameters()
                 ):
                     targ_param.data.copy_(
                         cfg.train.tau * param.data
