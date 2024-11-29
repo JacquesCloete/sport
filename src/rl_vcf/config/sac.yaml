@@ -1,5 +1,5 @@
 defaults:
   - hydra: chdir
-  - train: ppo_halfcheetah
-  - network: ppo
+  - train: sac_halfcheetah
+  - network: sac
   - wandb: rl_vcf

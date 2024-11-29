@@ -1,0 +1,2 @@
+hidden_sizes: [64, 64]
+activation: "Tanh"

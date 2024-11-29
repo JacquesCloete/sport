@@ -1,0 +1,2 @@
+hidden_sizes: [256, 256]
+activation: "ReLU"

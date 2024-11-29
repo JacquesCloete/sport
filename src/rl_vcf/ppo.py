@@ -93,20 +93,20 @@ def main(cfg: PPOConfig) -> None:
     )
 
     # Create agent
-    # agent = Agent(envs).to(device)
     agent = MLPActorCritic(
         envs.single_observation_space,
         envs.single_action_space,
-        cfg.train.hidden_sizes,
-        eval("nn." + cfg.train.activation + "()"),
+        cfg.network.hidden_sizes,
+        eval("nn." + cfg.network.activation + "()"),
     ).to(device)
     print(agent)
 
+    # Create optimizer
     optimizer = optim.Adam(
-        agent.parameters(), lr=cfg.train.learning_rate, eps=cfg.train.adam_epsilon
+        agent.parameters(), lr=cfg.train.lr, eps=cfg.train.adam_epsilon
     )  # default torch epsilon of 1e-8 found to be better
 
-    # ALGO logic: Storage setup
+    # ALGO LOGIC: Storage setup
     observations = torch.zeros(
         (cfg.train.num_steps, cfg.train.num_envs) + envs.single_observation_space.shape
     ).to(device)
@@ -137,7 +137,7 @@ def main(cfg: PPOConfig) -> None:
         if cfg.train.anneal_lr:
             # annealing helps agents obtain higher episodic return
             frac = 1.0 - (update - 1.0) / num_updates  # linear annealing (to 0)
-            lr_now = cfg.train.learning_rate * frac
+            lr_now = cfg.train.lr * frac
             optimizer.param_groups[0]["lr"] = lr_now
 
         for step in range(0, cfg.train.num_steps):  # collect batch data
@@ -146,7 +146,7 @@ def main(cfg: PPOConfig) -> None:
             observations[step] = next_obs
             dones[step] = next_done
 
-            # ALGO logic: action logic
+            # ALGO LOGIC: action logic
             with torch.no_grad():  # don't need to cache gradients during rollout
                 act, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten()
@@ -156,18 +156,20 @@ def main(cfg: PPOConfig) -> None:
             # Environment step
             next_obs, rew, term, trunc, info = envs.step(act.cpu().numpy())
             rewards[step] = torch.tensor(rew).to(device).view(-1)
-            done = (
-                term | trunc
+            done = np.logical_or(
+                term,
+                trunc,
             )  # for now, let done be when terminated (task success/failure) or truncated (time limit)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(
                 done
             ).to(device)
-            for _, val in info.items():
+            # Record episodic returns for plotting
+            if "final_info" in info:
                 # note info is usually empty but gets populated at end of episode
                 # also, the current gymnasium implementation of info seems absolutely terrible?
                 # a dict of lists, each list containing a mix of different types, including dicts??
-                for item in val:
-                    if isinstance(item, dict) and "episode" in item.keys():
+                for item in info["final_info"]:
+                    if item and "episode" in item:
                         # print(
                         #     f"global_step={global_step}, episodic_return={item['episode']['r']}"
                         # )
@@ -181,9 +183,13 @@ def main(cfg: PPOConfig) -> None:
                             item["episode"]["l"],
                             global_step=global_step,
                         )
-                        break
 
-        # bootstrap reward if not done (take value at next obs as end-of-roolout value)
+        # Bootstrap reward if not done (take value at next obs as end-of-rollout value)
+        # Note that for vectorized environments, each environment auto-resets when done
+        # So when we step, we actually see the initial observation of the next episode
+        # So if we want the final observation of the previous episode, we look in info
+        # But we don't have to do that here because we only bootstrap if not done!
+        # See SAC implementation for when you need the final observation when done
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
             if cfg.train.gae:
@@ -353,7 +359,7 @@ def main(cfg: PPOConfig) -> None:
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         # print("SPS : ", int(global_step / (time.time() - start_time)))
         writer.add_scalar(
-            "charts/SPS", int(global_step / (time.time() - start_time)), global_step
+            "charts/sps", int(global_step / (time.time() - start_time)), global_step
         )
 
     # Close envs

@@ -8,8 +8,8 @@ from rl_vcf.rl.utils.dataclasses import NetworkConfig, WandBConfig
 @dataclass
 class TrainConfig:
     gym_id: str  # name of gym environment
-    lr: float  # learning rate
-    anneal_lr: bool  # toggle learning rate annealing
+    policy_lr: float  # policy learning rate
+    q_lr: float  # q-network learning rate
     adam_epsilon: float  # adam optimizer epsilon
     seed: int  # rng seed
     total_timesteps: int  # total no. environment interactions
@@ -18,23 +18,19 @@ class TrainConfig:
     capture_video: bool  # capture videos of agent over an episode
     video_ep_interval: int  # video capture episode interval
     num_envs: int  # no. parallel environments
-    num_steps: int  # no. steps per environment per policy rollout
-    gae: bool  # use generalized advantage estimation
     gamma: float  # discount factor
-    gae_lambda: float  # lambda for GAE
-    num_minibatches: int  # no. minibatches per epoch per update step
-    update_epochs: int  # no. epochs per update step
-    norm_adv: bool  # use advantage normalization
-    clip_coef: float  # surrogate clipping coefficient
-    clip_vloss: bool  # clip value function loss
+    buffer_size: int  # replay buffer size
+    batch_size: int  # batch size of samples from replay buffer
+    burn_in: int  # burn-in before learning starts
     ent_coef: float  # entropy regularization coefficient
-    vf_coef: float  # value function loss coefficient
-    max_grad_norm: float  # max norm for gradient clipping
-    target_kl: float | None  # target KL divergence for early stopping
+    autotune: bool  # autotune entropy regularization coefficient
+    policy_freq: int  # policy update frequency
+    targ_net_freq: int  # target network update frequency
+    tau: float  # target smoothing polyak coefficient
 
 
 @dataclass
-class PPOConfig:
+class SACConfig:
     train: TrainConfig = field(default_factory=TrainConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)

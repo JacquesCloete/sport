@@ -12,6 +12,7 @@ def layer_init(
 ) -> nn.Linear:
     """Initialize layer weights."""
     # Note: different to standard torch initialization methods
+    # Used by the original PPO implementation
     torch.nn.init.orthogonal_(layer.weight, std)  # outperforms default init
     torch.nn.init.constant_(layer.bias, bias_const)  # start with 0 bias
     return layer
@@ -88,7 +89,7 @@ class MLPCategoricalActor(Actor):
 
 
 LOG_STD_MAX = 2
-LOG_STD_MIN = -20
+LOG_STD_MIN = -5
 
 
 class MLPGaussianActor(Actor):
@@ -137,13 +138,14 @@ class MLPCritic(nn.Module):
 
 
 class MLPActorCritic(nn.Module):
+    """Actor and critic."""
 
     def __init__(
         self,
         observation_space: Space,
         action_space: Space,
         hidden_sizes: tuple[int] = (64, 64),
-        activation: nn.Module = nn.Tanh,
+        activation: nn.Module = nn.Tanh(),
     ) -> None:
         super().__init__()
 
@@ -169,7 +171,7 @@ class MLPActorCritic(nn.Module):
     def get_action_and_value(
         self, obs: torch.Tensor, act: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Sample action from actor and get value from critic."""
+        """Sample action (and log-prob) from actor and get value from critic."""
         pi = self.pi._distribution(obs)
         if act is None:
             act = pi.sample()
