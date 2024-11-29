@@ -41,9 +41,7 @@ def main(cfg: PPOConfig) -> None:
     # print(f"Test : {run_name}")
 
     # Convert config into format suitable for wandb
-    wandb.config = OmegaConf.to_container(
-        cfg.train, resolve=True, throw_on_missing=True
-    )
+    wandb.config = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
 
     # Set up wandb logger
     if cfg.wandb.track:
@@ -64,7 +62,13 @@ def main(cfg: PPOConfig) -> None:
     writer.add_text(
         "config",
         "|param|value|\n|-|-|\n%s"
-        % ("\n".join([f"|{key}|{value}|" for key, value in cfg.train.items()])),
+        % (
+            "\n".join(
+                [f"|{key}|{value}|" for key, value in cfg.train_common.items()]
+                + [f"|{key}|{value}|" for key, value in cfg.train.items()]
+                + [f"|{key}|{value}|" for key, value in cfg.network.items()]
+            )
+        ),
     )
 
     # Seeding
