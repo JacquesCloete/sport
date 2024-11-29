@@ -1,14 +1,7 @@
-gym_id: "CartPole-v1"
 lr: 2.5e-4
 anneal_lr: true
 adam_epsilon: 1.0e-8
-seed: 0
 total_timesteps: 250000
-torch_deterministic: true
-cuda: true
-capture_video: true
-video_ep_interval: 100
-num_envs: 4
 num_steps: 128
 gae: true
 gamma: 0.99

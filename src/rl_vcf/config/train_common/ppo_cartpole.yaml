@@ -1,0 +1,9 @@
+gym_id: "CartPole-v1"
+seed: 0
+total_timesteps: 250000
+torch_deterministic: true
+cuda: true
+capture_video: true
+video_ep_interval: 100
+num_envs: 4
+preprocess_envs: false

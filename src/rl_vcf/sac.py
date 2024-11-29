@@ -71,13 +71,13 @@ def main(cfg: SACConfig) -> None:
     )
 
     # Seeding
-    random.seed(cfg.train.seed)
-    np.random.seed(cfg.train.seed)
-    torch.manual_seed(cfg.train.seed)
-    torch.backends.cudnn.deterministic = cfg.train.torch_deterministic
+    random.seed(cfg.train_common.seed)
+    np.random.seed(cfg.train_common.seed)
+    torch.manual_seed(cfg.train_common.seed)
+    torch.backends.cudnn.deterministic = cfg.train_common.torch_deterministic
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() and cfg.train.cuda else "cpu"
+        "cuda" if torch.cuda.is_available() and cfg.train_common.cuda else "cpu"
     )
 
     # Environment setup
@@ -85,13 +85,14 @@ def main(cfg: SACConfig) -> None:
     envs = gym.vector.SyncVectorEnv(
         [
             make_env(
-                cfg.train.gym_id,
+                cfg.train_common.gym_id,
                 i,
-                cfg.train.seed + i,
-                cfg.train.capture_video,
-                cfg.train.video_ep_interval,
+                cfg.train_common.seed + i,
+                cfg.train_common.capture_video,
+                cfg.train_common.video_ep_interval,
+                cfg.train_common.preprocess_envs,
             )
-            for i in range(cfg.train.num_envs)
+            for i in range(cfg.train_common.num_envs)
         ]
     )
     assert isinstance(
@@ -147,11 +148,13 @@ def main(cfg: SACConfig) -> None:
     # Start training
     start_time = time.time()
     obs = torch.Tensor(
-        envs.reset(seed=[cfg.train.seed + i for i in range(cfg.train.num_envs)])[
+        envs.reset(
+            seed=[cfg.train_common.seed + i for i in range(cfg.train_common.num_envs)]
+        )[
             0  # observations are first element of env reset output
         ]
     ).to(device)
-    for global_step in tqdm(range(cfg.train.total_timesteps)):
+    for global_step in tqdm(range(cfg.train_common.total_timesteps)):
         # ALGO LOGIC: action logic
         with torch.no_grad():
             if global_step < cfg.train.burn_in:
@@ -159,7 +162,7 @@ def main(cfg: SACConfig) -> None:
                     np.array(
                         [
                             envs.single_action_space.sample()
-                            for _ in range(cfg.train.num_envs)
+                            for _ in range(cfg.train_common.num_envs)
                         ]
                     )
                 )

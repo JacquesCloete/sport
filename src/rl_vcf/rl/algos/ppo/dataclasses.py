@@ -1,23 +1,15 @@
 from dataclasses import dataclass, field
 
-from rl_vcf.rl.utils.dataclasses import NetworkConfig, WandBConfig
+from rl_vcf.rl.utils.dataclasses import NetworkConfig, TrainCommonConfig, WandBConfig
 
 # Structured configs for type checking
 
 
 @dataclass
-class TrainConfig:
-    gym_id: str  # name of gym environment
+class TrainPPOConfig:
     lr: float  # learning rate
     anneal_lr: bool  # toggle learning rate annealing
     adam_epsilon: float  # adam optimizer epsilon
-    seed: int  # rng seed
-    total_timesteps: int  # total no. environment interactions
-    torch_deterministic: bool  # use deterministic torch algs
-    cuda: bool  # use gpu
-    capture_video: bool  # capture videos of agent over an episode
-    video_ep_interval: int  # video capture episode interval
-    num_envs: int  # no. parallel environments
     num_steps: int  # no. steps per environment per policy rollout
     gae: bool  # use generalized advantage estimation
     gamma: float  # discount factor
@@ -35,6 +27,7 @@ class TrainConfig:
 
 @dataclass
 class PPOConfig:
-    train: TrainConfig = field(default_factory=TrainConfig)
+    train: TrainPPOConfig = field(default_factory=TrainPPOConfig)
+    train_common: TrainCommonConfig = field(default_factory=TrainCommonConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)

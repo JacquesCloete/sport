@@ -68,13 +68,13 @@ def main(cfg: PPOConfig) -> None:
     )
 
     # Seeding
-    random.seed(cfg.train.seed)
-    np.random.seed(cfg.train.seed)
-    torch.manual_seed(cfg.train.seed)
-    torch.backends.cudnn.deterministic = cfg.train.torch_deterministic
+    random.seed(cfg.train_common.seed)
+    np.random.seed(cfg.train_common.seed)
+    torch.manual_seed(cfg.train_common.seed)
+    torch.backends.cudnn.deterministic = cfg.train_common.torch_deterministic
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() and cfg.train.cuda else "cpu"
+        "cuda" if torch.cuda.is_available() and cfg.train_common.cuda else "cpu"
     )
 
     # Environment setup
@@ -82,13 +82,14 @@ def main(cfg: PPOConfig) -> None:
     envs = gym.vector.SyncVectorEnv(
         [
             make_env(
-                cfg.train.gym_id,
+                cfg.train_common.gym_id,
                 i,
-                cfg.train.seed + i,
-                cfg.train.capture_video,
-                cfg.train.video_ep_interval,
+                cfg.train_common.seed + i,
+                cfg.train_common.capture_video,
+                cfg.train_common.video_ep_interval,
+                cfg.train_common.preprocess_envs,
             )
-            for i in range(cfg.train.num_envs)
+            for i in range(cfg.train_common.num_envs)
         ]
     )
 
@@ -108,28 +109,32 @@ def main(cfg: PPOConfig) -> None:
 
     # ALGO LOGIC: Storage setup
     observations = torch.zeros(
-        (cfg.train.num_steps, cfg.train.num_envs) + envs.single_observation_space.shape
+        (cfg.train.num_steps, cfg.train_common.num_envs)
+        + envs.single_observation_space.shape
     ).to(device)
     actions = torch.zeros(
-        (cfg.train.num_steps, cfg.train.num_envs) + envs.single_action_space.shape
+        (cfg.train.num_steps, cfg.train_common.num_envs)
+        + envs.single_action_space.shape
     ).to(device)
-    logprobs = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
-    rewards = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
-    dones = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
-    values = torch.zeros((cfg.train.num_steps, cfg.train.num_envs)).to(device)
+    logprobs = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
+    rewards = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
+    dones = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
+    values = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
 
     # Start training
     global_step = 0
     start_time = time.time()
     next_obs = torch.Tensor(
-        envs.reset(seed=[cfg.train.seed + i for i in range(cfg.train.num_envs)])[
+        envs.reset(
+            seed=[cfg.train_common.seed + i for i in range(cfg.train_common.num_envs)]
+        )[
             0  # observations are first element of env reset output
         ]
     ).to(device)
-    next_done = torch.zeros(cfg.train.num_envs).to(device)
+    next_done = torch.zeros(cfg.train_common.num_envs).to(device)
 
-    batch_size = int(cfg.train.num_steps * cfg.train.num_envs)
-    num_updates = cfg.train.total_timesteps // batch_size
+    batch_size = int(cfg.train.num_steps * cfg.train_common.num_envs)
+    num_updates = cfg.train_common.total_timesteps // batch_size
     minibatch_size = int(batch_size // cfg.train.num_minibatches)
 
     for update in tqdm(range(1, num_updates + 1)):  # update networks using batch data
@@ -142,7 +147,7 @@ def main(cfg: PPOConfig) -> None:
 
         for step in range(0, cfg.train.num_steps):  # collect batch data
             # note the batch data gets overwritten in each update loop
-            global_step += 1 * cfg.train.num_envs
+            global_step += 1 * cfg.train_common.num_envs
             observations[step] = next_obs
             dones[step] = next_done
 

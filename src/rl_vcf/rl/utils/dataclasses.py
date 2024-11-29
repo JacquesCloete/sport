@@ -15,3 +15,16 @@ class WandBConfig:
     project: str | None  # wandb project name
     entity: str | None  # wandb entity (team) name
     group: str | None  # wandb experiment group name
+
+
+@dataclass
+class TrainCommonConfig:
+    gym_id: str  # name of gym environment
+    seed: int  # rng seed
+    total_timesteps: int  # total no. environment interactions
+    torch_deterministic: bool  # use deterministic torch algs
+    cuda: bool  # use gpu
+    capture_video: bool  # capture videos of agent over an episode
+    video_ep_interval: int  # video capture episode interval
+    num_envs: int  # no. parallel environments
+    preprocess_envs: bool  # preprocess envs for continuous action spaces
