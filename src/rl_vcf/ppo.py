@@ -103,6 +103,7 @@ def main(cfg: PPOConfig) -> None:
         envs.single_action_space,
         cfg.network.hidden_sizes,
         eval("nn." + cfg.network.activation + "()"),
+        state_dependent_std=cfg.train.state_dependent_std,
     ).to(device)
     print(agent)
 
@@ -124,6 +125,12 @@ def main(cfg: PPOConfig) -> None:
     rewards = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
     dones = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
     values = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
+    # Store untransformed actions when using state-dependent std (SAC-like policy)
+    if cfg.train.state_dependent_std:
+        x_ts = torch.zeros(
+            (cfg.train.num_steps, cfg.train_common.num_envs)
+            + envs.single_action_space.shape
+        ).to(device)
 
     # Start training
     global_step = 0
@@ -157,7 +164,10 @@ def main(cfg: PPOConfig) -> None:
 
             # ALGO LOGIC: action logic
             with torch.no_grad():  # don't need to cache gradients during rollout
-                act, logprob, _, value = agent.get_action_and_value(next_obs)
+                act, logprob, _, value, x_t = agent.get_action_and_value(next_obs)
+                if cfg.train.state_dependent_std:
+                    # Need to also store untransformed actions for state-dependent std
+                    x_ts[step] = x_t
                 values[step] = value.flatten()
             actions[step] = act
             logprobs[step] = logprob
@@ -250,7 +260,11 @@ def main(cfg: PPOConfig) -> None:
             (-1,) + envs.single_observation_space.shape
         )
         b_logprobs = logprobs.reshape(-1)
-        b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+        if cfg.train.state_dependent_std:
+            # Use untransformed actions for state-dependent std
+            b_actions = x_ts.reshape((-1,) + envs.single_action_space.shape)
+        else:
+            b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
@@ -267,7 +281,7 @@ def main(cfg: PPOConfig) -> None:
                 mb_inds = b_inds[start:end]  # get minibatch indices for update step
 
                 # Get policy ratio for clipping
-                _, new_logprobs, entropies, new_values = agent.get_action_and_value(
+                _, new_logprobs, entropies, new_values, _ = agent.get_action_and_value(
                     b_observations[mb_inds], b_actions[mb_inds]
                 )
                 logratios = new_logprobs - b_logprobs[mb_inds]

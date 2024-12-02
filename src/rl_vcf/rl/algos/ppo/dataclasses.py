@@ -23,6 +23,7 @@ class TrainPPOConfig:
     vf_coef: float  # value function loss coefficient
     max_grad_norm: float  # max norm for gradient clipping
     target_kl: float | None  # target KL divergence for early stopping
+    state_dependent_std: bool  # use state dependent std for continuous actions
 
 
 @dataclass

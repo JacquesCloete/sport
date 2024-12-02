@@ -78,18 +78,29 @@ class MLPCategoricalActor(Actor):
             [obs_dim] + list(hidden_sizes) + [act_dim], activation, output_std=0.01
         )
 
-    def _distribution(self, obs: torch.Tensor) -> Categorical:
+    def forward(
+        self,
+        obs: torch.Tensor,
+        pi_action: torch.Tensor | None = None,
+        deterministic: bool = False,
+        with_log_prob: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         logits = self.logits_net(obs)
-        return Categorical(logits=logits)
 
-    def _log_prob_from_distribution(
-        self, pi: Categorical, act: torch.Tensor
-    ) -> torch.Tensor:
-        return pi.log_prob(act.long())
+        # Sample
+        pi_distribution = Categorical(logits=logits)
+        if pi_action is None:
+            if deterministic:
+                pi_action = pi_distribution.mode
+            else:
+                pi_action = pi_distribution.sample()
 
+        if with_log_prob:
+            logp_pi = pi_distribution.log_prob(pi_action.long())
+        else:
+            logp_pi = None
 
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
+        return pi_action, logp_pi, pi_distribution.entropy(), None
 
 
 class MLPGaussianActor(Actor):
@@ -109,17 +120,94 @@ class MLPGaussianActor(Actor):
             [obs_dim] + list(hidden_sizes) + [act_dim], activation, output_std=0.01
         )
 
-    def _distribution(self, obs: torch.Tensor) -> Normal:
+    def forward(
+        self,
+        obs: torch.Tensor,
+        pi_action: torch.Tensor | None = None,
+        deterministic: bool = False,
+        with_log_prob: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         mu = self.mu_net(obs)
         std = torch.exp(self.log_std)
-        return Normal(mu, std)
 
-    def _log_prob_from_distribution(
-        self, pi: Normal, act: torch.Tensor
-    ) -> torch.Tensor:
-        return pi.log_prob(act).sum(
-            axis=-1
-        )  # Last axis sum needed for Torch Normal distribution
+        # Sample
+        pi_distribution = Normal(mu, std)
+        if pi_action is None:
+            if deterministic:
+                pi_action = mu
+            else:
+                pi_action = pi_distribution.rsample()
+
+        if with_log_prob:
+            logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
+            # Last axis sum needed for Torch Normal distribution
+        else:
+            logp_pi = None
+
+        return pi_action, logp_pi, pi_distribution.entropy(), None
+
+
+LOG_STD_MAX = 2
+LOG_STD_MIN = -5
+
+
+class MLPSquashedGaussianActor(nn.Module):
+    """Squashed Gaussian actor."""
+
+    # This actor has a state-dependent standard deviation, and is designed to match the
+    # actor from SAC (so we do stuff like transforming the action).
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_sizes: tuple[int],
+        activation: nn.Module,
+        act_scale: torch.Tensor,
+        act_bias: torch.Tensor,
+    ) -> None:
+        super().__init__()
+        self.net = mlp([obs_dim] + list(hidden_sizes), activation, activation)
+        self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
+        self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
+        self.register_buffer("act_scale", act_scale)
+        self.register_buffer("act_bias", act_bias)
+
+    def forward(
+        self,
+        obs: torch.Tensor,
+        pi_action: torch.Tensor | None = None,  # this must be untransformed action x_t
+        deterministic: bool = False,
+        with_log_prob: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
+        net_out = self.net(obs)
+        mu = self.mu_layer(net_out)
+        log_std = self.log_std_layer(net_out)
+        # log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        log_std = torch.tanh(log_std)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
+        std = torch.exp(log_std)
+
+        # Pre-squash distribution and sample
+        pi_distribution = Normal(mu, std)
+        x_t = pi_action
+        if x_t is None:
+            if deterministic:
+                x_t = mu
+            else:
+                x_t = pi_distribution.rsample()
+        y_t = torch.tanh(x_t)
+        pi_action = y_t * self.act_scale + self.act_bias
+
+        if with_log_prob:
+            logp_pi = pi_distribution.log_prob(x_t)
+            # Enforcing action bounds
+            logp_pi -= torch.log(self.act_scale * (1 - y_t.pow(2)) + 1e-6)
+            logp_pi = logp_pi.sum(1, keepdim=True).squeeze(-1)
+            # why doesn't cleanrl squeeze?
+        else:
+            logp_pi = None
+
+        return pi_action, logp_pi, pi_distribution.entropy(), x_t
 
 
 class MLPCritic(nn.Module):
@@ -146,45 +234,69 @@ class MLPActorCritic(nn.Module):
         action_space: Space,
         hidden_sizes: tuple[int] = (64, 64),
         activation: nn.Module = nn.Tanh(),
+        state_dependent_std: bool = False,
     ) -> None:
         super().__init__()
-
         obs_dim = np.array(observation_space.shape).prod()
 
         # policy builder depends on action space
         if isinstance(action_space, Box):
-            self.pi = MLPGaussianActor(
-                obs_dim, np.prod(action_space.shape), hidden_sizes, activation
-            )
+            act_dim = np.prod(action_space.shape)
+            if state_dependent_std:
+                act_scale = torch.tensor(
+                    (action_space.high - action_space.low) / 2.0,  # dtype=torch.float32
+                )
+                act_bias = torch.tensor(
+                    (action_space.high + action_space.low) / 2.0,  # dtype=torch.float32
+                )
+                self.pi = MLPSquashedGaussianActor(
+                    obs_dim,
+                    act_dim,
+                    hidden_sizes,
+                    activation,
+                    act_scale,
+                    act_bias,
+                )
+            else:
+                self.pi = MLPGaussianActor(
+                    obs_dim,
+                    act_dim,
+                    hidden_sizes,
+                    activation,
+                )
         elif isinstance(action_space, Discrete):
             self.pi = MLPCategoricalActor(
                 obs_dim, action_space.n, hidden_sizes, activation
             )
 
         # build value function
+        # Note we use V(s) as the value function
         self.v = MLPCritic(obs_dim, hidden_sizes, activation)
 
     def get_value(self, obs: torch.Tensor) -> torch.Tensor:
         """Get value from critic."""
-        return self.v(obs)
+        return self.v.forward(obs)
 
     def get_action_and_value(
         self, obs: torch.Tensor, act: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None
+    ]:
         """Sample action (and log-prob) from actor and get value from critic."""
-        pi = self.pi._distribution(obs)
-        if act is None:
-            act = pi.sample()
+        act, logp_a, entropy, x_t = self.pi.forward(
+            obs, act, deterministic=False, with_log_prob=True
+        )
         return (
             act,
-            self.pi._log_prob_from_distribution(pi, act),
-            pi.entropy(),
-            self.v(obs),
+            logp_a,
+            entropy,
+            self.v.forward(obs),
+            x_t,  # Note: this is None unless we use state-dependent std
         )
 
-    def act(self, obs: torch.Tensor) -> torch.Tensor:
+    def act(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         """Sample action from actor."""
-        return self.get_action_and_value(obs)[0]
+        return self.pi.forward(obs, None, deterministic, False)[0]
 
 
 # From OpenAI SpinningUp, may be useful later:

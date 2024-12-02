@@ -111,6 +111,8 @@ class MLPSquashedGaussianActor(nn.Module):
         if deterministic:
             x_t = mu
         else:
+            # rsample keeps computation graph alive using reparameterization trick
+            # meanwhile, sample does not
             x_t = pi_distribution.rsample()
         y_t = torch.tanh(x_t)
         pi_action = y_t * self.act_scale + self.act_bias
@@ -173,13 +175,14 @@ class MLPActorCritic(nn.Module):
         self.pi = MLPSquashedGaussianActor(
             obs_dim, act_dim, hidden_sizes, activation, act_scale, act_bias
         )
+        # Note we use Q(s,a) as the value function
         self.q1 = MLPCritic(obs_dim, act_dim, hidden_sizes, activation)
         self.q2 = MLPCritic(obs_dim, act_dim, hidden_sizes, activation)
 
     def act(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         with torch.no_grad():
             """Sample action from actor."""
-            return self.pi(obs, deterministic, False)[0]
+            return self.pi.forward(obs, deterministic, False)[0]
 
 
 # From OpenAI SpinningUp, may be useful later:

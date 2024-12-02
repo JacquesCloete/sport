@@ -15,3 +15,4 @@ ent_coef: 0.01
 vf_coef: 0.5
 max_grad_norm: 0.5
 target_kl: null
+state_dependent_std: false
