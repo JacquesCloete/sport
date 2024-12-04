@@ -1,0 +1,12 @@
+policy_lr: 3.0e-4
+q_lr: 1.0e-3
+adam_epsilon: 1.0e-8
+gamma: 0.99
+buffer_size: 1000000
+batch_size: 256
+burn_in: 5000
+ent_coef: 0.2
+autotune: true
+policy_freq: 2
+targ_net_freq: 1
+tau: 0.005

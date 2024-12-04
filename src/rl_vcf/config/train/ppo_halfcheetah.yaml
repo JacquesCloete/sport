@@ -1,7 +1,6 @@
 lr: 3.0e-4
 anneal_lr: true
 adam_epsilon: 1.0e-8
-total_timesteps: 500000
 num_steps: 2048
 gae: true
 gamma: 0.99

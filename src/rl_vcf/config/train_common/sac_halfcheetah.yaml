@@ -1,6 +1,6 @@
 gym_id: "HalfCheetah-v4"
 seed: 0
-total_timesteps: 200000
+total_timesteps: 201000
 torch_deterministic: true
 cuda: true
 capture_video: true
