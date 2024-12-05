@@ -68,7 +68,7 @@ def make_env_safety(
         env = safety_gymnasium.make(
             gym_id,
             render_mode="rgb_array",  # need to set render mode for video recording
-            camera_name="fixednear",
+            camera_name="fixedfar",
         )
         # wrap to gymnasium
         env = safety_gymnasium.wrappers.SafetyGymnasium2Gymnasium(env)

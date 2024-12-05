@@ -4,7 +4,7 @@ import random
 import time
 from copy import deepcopy
 
-import gymnasium as gym
+import gymnasium as gym  # noqa: F401
 import hydra
 import numpy as np
 import safety_gymnasium
@@ -20,13 +20,13 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from rl_vcf.rl.algos.sac.core import MLPActorCritic, ReplayBuffer
-from rl_vcf.rl.algos.sac.dataclasses import SACConfig
+from rl_vcf.rl.algos.sac.dataclasses import SACSafetyConfig
 from rl_vcf.rl.utils.make_env import make_env_safety
 
 
 # Need to run everything inside hydra main function
 @hydra.main(config_path="config", config_name="sac_safety", version_base="1.3")
-def main(cfg: SACConfig) -> None:
+def main(cfg: SACSafetyConfig) -> None:
     # Print the config
     print(OmegaConf.to_yaml(cfg))
 
@@ -150,6 +150,15 @@ def main(cfg: SACConfig) -> None:
         device,
     )
 
+    # Track whether the goal was achieved and whether a constraint was violated each episode
+    goal_achieved = False
+    goal_achieved_latch = False
+    constraint_violated = False
+    constraint_violated_latch = False
+
+    # Track how many times the goal was achieved each episode
+    goal_achieved_count = 0
+
     # Start training
     start_time = time.time()
     obs = torch.Tensor(
@@ -177,6 +186,38 @@ def main(cfg: SACConfig) -> None:
         # Environment step
         next_obs, rew, cost, term, trunc, info = envs.step(act.detach().cpu().numpy())
 
+        # Update latches
+        if term | trunc:
+            # note that normal info goes to "final_info" at the end of the episode
+            for item in info["final_info"]:
+                if item and "goal_met" in item:
+                    goal_achieved = item["goal_met"]
+                if item and "constraint_violated" in item:
+                    constraint_violated = item["constraint_violated"]
+        else:
+            goal_achieved = info["goal_met"]
+            constraint_violated = info["constraint_violated"]
+
+        if goal_achieved:
+            goal_achieved_count += 1
+        goal_achieved_latch = goal_achieved_latch | goal_achieved
+        constraint_violated_latch = constraint_violated_latch | constraint_violated
+
+        # Learn safety
+        # TODO: improve safety learning
+        # TODO: support parallelization
+        if cfg.learn_safety:
+            rew = rew * 0.1  # dense reward (Euclidean distance)
+
+            if goal_achieved:
+                rew -= rew
+                rew += 1.0  # sparse reward
+            if term | trunc:
+                if (not goal_achieved_latch) | constraint_violated_latch:
+                    rew -= rew
+                    # rew = -cost
+                    rew += -1.0  # sparse penalty
+
         # Record episodic returns for plotting
         if "final_info" in info:
             # note info is usually empty but gets populated at end of episode
@@ -197,6 +238,31 @@ def main(cfg: SACConfig) -> None:
                         item["episode"]["l"],
                         global_step=global_step,
                     )
+            writer.add_scalar(
+                "charts/goal_achieved", goal_achieved_latch, global_step=global_step
+            )
+            writer.add_scalar(
+                "charts/constraint_violated",
+                constraint_violated_latch,
+                global_step=global_step,
+            )
+            writer.add_scalar(
+                "charts/task_success",
+                goal_achieved_latch & (not constraint_violated_latch),
+                global_step=global_step,
+            )
+            writer.add_scalar(
+                "charts/goal_achieved_count",
+                goal_achieved_count,
+                global_step=global_step,
+            )
+
+        # Reset latches if at end of episode
+        if term | trunc:
+            goal_achieved_latch = False
+            constraint_violated_latch = False
+            goal_achieved_count = 0
+
         # Handle "final_observation"
         # Note that for vectorized environments, each environment auto-resets when done
         # So when we step, we actually see the initial observation of the next episode

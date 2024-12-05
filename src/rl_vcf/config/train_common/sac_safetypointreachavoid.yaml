@@ -1,9 +1,9 @@
-gym_id: "SafetyPointGoal1-v0"
+gym_id: "SafetyPointReachAvoid2-v0"
 seed: 0
 total_timesteps: 201000
 torch_deterministic: true
 cuda: true
 capture_video: true
-video_ep_interval: 100
+video_ep_interval: 25
 num_envs: 1
 preprocess_envs: false

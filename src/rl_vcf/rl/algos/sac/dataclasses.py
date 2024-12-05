@@ -27,3 +27,12 @@ class SACConfig:
     train_common: TrainCommonConfig = field(default_factory=TrainCommonConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
+
+
+@dataclass
+class SACSafetyConfig:
+    train: TrainSACConfig = field(default_factory=TrainSACConfig)
+    train_common: TrainCommonConfig = field(default_factory=TrainCommonConfig)
+    network: NetworkConfig = field(default_factory=NetworkConfig)
+    wandb: WandBConfig = field(default_factory=WandBConfig)
+    learn_safety: bool = False
