@@ -171,6 +171,15 @@ class MLPSquashedGaussianActor(nn.Module):
         self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.register_buffer("act_scale", act_scale)
         self.register_buffer("act_bias", act_bias)
+        # Save activation function as a string in the register buffer
+        self.register_buffer("activation", torch.tensor([0]))
+        ords = list(map(ord, activation.__class__.__name__))
+        self.activation = torch.tensor(ords)
+
+    def get_activation(self) -> str:
+        # Get the activation function as a string from the register buffer
+        ords = self.activation.tolist()
+        return "".join(map(chr, ords))
 
     def forward(
         self,
@@ -215,14 +224,10 @@ class MLPCritic(nn.Module):
 
     def __init__(self, obs_dim, hidden_sizes, activation) -> None:
         super().__init__()
-        self.v_net = mlp(
-            [obs_dim] + list(hidden_sizes) + [1], activation, output_std=1.0
-        )
+        self.net = mlp([obs_dim] + list(hidden_sizes) + [1], activation, output_std=1.0)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return torch.squeeze(
-            self.v_net(obs), -1
-        )  # Critical to ensure v has right shape.
+        return torch.squeeze(self.net(obs), -1)  # Critical to ensure v has right shape.
 
 
 class MLPActorCritic(nn.Module):
