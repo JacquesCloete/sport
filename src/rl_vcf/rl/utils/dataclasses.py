@@ -25,6 +25,8 @@ class TrainCommonConfig:
     torch_deterministic: bool  # use deterministic torch algs
     cuda: bool  # use gpu
     capture_video: bool  # capture videos of agent over an episode
-    video_ep_interval: int  # video capture episode interval
+    capture_video_ep_interval: int  # video capture episode interval
     num_envs: int  # no. parallel environments
     preprocess_envs: bool  # preprocess envs for continuous action spaces
+    save_model: bool  # save model weights
+    save_model_ep_interval: int  # save model weights episode interval

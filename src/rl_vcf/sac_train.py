@@ -1,4 +1,5 @@
 import itertools
+import logging
 import os
 import random
 import time
@@ -93,7 +94,7 @@ def main(cfg: SACConfig) -> None:
                 i,
                 cfg.train_common.seed + i,
                 cfg.train_common.capture_video,
-                cfg.train_common.video_ep_interval,
+                cfg.train_common.capture_video_ep_interval,
                 cfg.train_common.preprocess_envs,
             )
             for i in range(cfg.train_common.num_envs)
@@ -102,6 +103,24 @@ def main(cfg: SACConfig) -> None:
     assert isinstance(
         envs.single_action_space, Box
     ), "only continuous action space is supported"
+
+    # Episode counter
+    # To be consistent with episode tracking for videos, track episode of each env separately
+    episode_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
+
+    if cfg.train_common.save_model:
+        models_folder = os.path.abspath("models")
+        # Create models output folder if needed
+        if os.path.isdir(models_folder):
+            logging.warning(f"Overwriting existing models at {models_folder} folder")
+        os.makedirs(models_folder, exist_ok=True)
+        policies_folder = os.path.abspath("policies")
+        # Create policies output folder if needed
+        if os.path.isdir(policies_folder):
+            logging.warning(
+                f"Overwriting existing policies at {policies_folder} folder"
+            )
+        os.makedirs(policies_folder, exist_ok=True)
 
     # Create agent
     agent = MLPActorCritic(
@@ -196,6 +215,27 @@ def main(cfg: SACConfig) -> None:
                         item["episode"]["l"],
                         global_step=global_step,
                     )
+        done = np.logical_or(term, trunc)
+        if done[0]:
+            if cfg.train_common.save_model:
+                # To be consistent with episode tracking for videos,
+                # use episode number of env 0 (not total episode count!)
+                if episode_count[0] % cfg.train_common.save_model_ep_interval == 0:
+                    # Save model
+                    model_name = f"models/rl-model-episode-{episode_count[0]}.pt"
+                    torch.save(agent.state_dict(), model_name)
+                    # Save policy separately as well
+                    policy_name = f"policies/rl-policy-episode-{episode_count[0]}.pt"
+                    torch.save(agent.pi.state_dict(), policy_name)
+
+            writer.add_scalar(
+                "charts/episode_count_per_env",
+                episode_count[0],
+                global_step=global_step,
+            )
+        # Increment episode counter
+        episode_count += done
+
         # Handle "final_observation"
         # Note that for vectorized environments, each environment auto-resets when done
         # So when we step, we actually see the initial observation of the next episode

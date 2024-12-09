@@ -4,6 +4,8 @@ total_timesteps: 201000
 torch_deterministic: true
 cuda: true
 capture_video: true
-video_ep_interval: 25
+capture_video_ep_interval: 25
 num_envs: 1
 preprocess_envs: false
+save_model: true
+save_model_ep_interval: 25
