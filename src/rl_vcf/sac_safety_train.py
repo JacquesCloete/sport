@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from rl_vcf.rl.algos.sac.core import MLPActorCritic, ReplayBuffer
 from rl_vcf.rl.algos.sac.dataclasses import SACSafetyConfig
-from rl_vcf.rl.utils.make_env import make_env_safety
+from rl_vcf.rl.utils import make_env_safety
 
 
 # Need to run everything inside hydra main function

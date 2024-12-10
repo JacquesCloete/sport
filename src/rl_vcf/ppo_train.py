@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from rl_vcf.rl.algos.ppo.core import MLPActorCritic
 from rl_vcf.rl.algos.ppo.dataclasses import PPOConfig
-from rl_vcf.rl.utils.make_env import make_env
+from rl_vcf.rl.utils import make_env
 
 
 # Need to run everything inside hydra main function

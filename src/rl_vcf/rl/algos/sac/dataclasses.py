@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from rl_vcf.rl.utils.dataclasses import NetworkConfig, TrainCommonConfig, WandBConfig
+from rl_vcf.rl.dataclasses import NetworkConfig, TrainCommonConfig, WandBConfig
 
 # Structured configs for type checking
 

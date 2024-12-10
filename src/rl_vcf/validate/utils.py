@@ -30,7 +30,12 @@ class ScenarioDatabase:
         self.timesteps = np.zeros(self.num_envs, dtype=int)
         self.epsilons_dict = {}
 
-    def update(self, done: Container[bool], goal_achieved: Container[bool]) -> None:
+    def update(
+        self,
+        done: Container[bool],
+        goal_achieved: Container[bool],
+        constraint_violated: Container[bool],
+    ) -> None:
         """Update the scenario database."""
         # For each active scenario, check task status
         if not any(self.active_scenarios < self.num_scenarios):
@@ -50,7 +55,16 @@ class ScenarioDatabase:
                             self.scenario_data[self.active_scenarios[p_idx]][
                                 self.timesteps[p_idx] :
                             ] = True
-                        # else, the task was not successful (violated a constraint, or ran out of time)
+                        elif constraint_violated[p_idx]:
+                            # On constraint violation, mark the task as unsuccessful
+                            self.scenario_data[self.active_scenarios[p_idx]][
+                                self.timesteps[p_idx] :
+                            ] = False
+                        else:
+                            # else, the task was not successful as it ran out of time
+                            self.scenario_data[self.active_scenarios[p_idx]][
+                                self.timesteps[p_idx] :
+                            ] = False
                         # The scenario pointer now tracks next scenario
                         self.active_scenarios[p_idx] = np.max(self.active_scenarios) + 1
                         # Reset the time step for the next scenario

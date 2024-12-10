@@ -21,7 +21,7 @@ from tqdm import tqdm
 
 from rl_vcf.rl.algos.sac.core import MLPActorCritic, ReplayBuffer
 from rl_vcf.rl.algos.sac.dataclasses import SACConfig
-from rl_vcf.rl.utils.make_env import make_env
+from rl_vcf.rl.utils import make_env
 
 
 # Need to run everything inside hydra main function
