@@ -173,13 +173,13 @@ class MLPActorCritic(nn.Module):
         super().__init__()
         obs_dim = np.array(observation_space.shape).prod()
         act_dim = np.prod(action_space.shape)
+        # Some envs define the action space dims as a double, so we need to force float
         act_scale = torch.tensor(
             (action_space.high - action_space.low) / 2.0, dtype=torch.float32
         )
         act_bias = torch.tensor(
             (action_space.high + action_space.low) / 2.0, dtype=torch.float32
         )
-        # Some envs define the action space dims as a double, so we need to force float
 
         # Build policy and value functions
         self.pi = MLPSquashedGaussianActor(
