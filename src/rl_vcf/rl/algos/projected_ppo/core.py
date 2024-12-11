@@ -4,8 +4,14 @@ import torch
 import torch.nn as nn
 from gymnasium.spaces import Box
 from numpy.typing import NDArray
+from torch.distributions import Normal
 
-from rl_vcf.rl.algos.ppo.core import MLPCritic, MLPSquashedGaussianActor
+from rl_vcf.rl.algos.ppo.core import (
+    LOG_STD_MAX,
+    LOG_STD_MIN,
+    MLPCritic,
+    MLPSquashedGaussianActor,
+)
 
 ETA = 1e-8
 
@@ -202,22 +208,101 @@ class MLPProjectedActorCritic(nn.Module):
     def get_projected_action_and_value(
         self, obs: torch.Tensor, act: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Sample projected action (and log-prob) from actor and get value from critic."""
-        # TODO
-        pass
-        # return (
-        #     act,
-        #     logp_a,
-        #     entropy,
-        #     self.v.forward(obs),
-        #     x_t,
-        # )
+        """
+        Sample projected action (and log-prob) from actor and get value from critic.
+
+        Note that the projection means that we cannot get gradients for the projected action.
+        """
+        act, logp_a, entropy, x_t = self.pi_task_projected_forward(
+            obs, act, deterministic=False, with_log_prob=True
+        )
+        return (
+            act,
+            logp_a,
+            entropy,
+            self.v.forward(obs),
+            x_t,
+        )
+
+    def pi_task_projected_forward(
+        self,
+        obs: torch.Tensor,
+        pi_action: torch.Tensor | None = None,  # this must be untransformed action x_t
+        deterministic: bool = False,
+        with_log_prob: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+
+        # Get base policy distribution
+        net_out_base = self.pi_base.net(obs)
+        mu_base = self.pi_base.mu_layer(net_out_base)
+        log_std_base = self.pi_base.log_std_layer(net_out_base)
+        log_std_base = torch.tanh(log_std_base)
+        log_std_base = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+            log_std_base + 1
+        )
+        std_base = torch.exp(log_std_base)
+
+        # Get task policy distribution
+        net_out_task = self.pi_task.net(obs)
+        mu_task = self.pi_task.mu_layer(net_out_task)
+        log_std_task = self.pi_task.log_std_layer(net_out_task)
+        log_std_task = torch.tanh(log_std_task)
+        log_std_task = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+            log_std_task + 1
+        )
+        std_task = torch.exp(log_std_task)
+
+        # Convert to numpy arrays
+        np_mu_base = mu_base.detach().numpy()
+        np_std_base = std_base.detach().numpy()
+        np_mu_task = mu_task.detach().numpy()
+        np_std_task = std_task.detach().numpy()
+
+        np_mu_proj = np.zeros_like(np_mu_task)
+        np_std_proj = np.zeros_like(np_std_task)
+
+        # Project task policy onto feasible set around base policy
+        if np.size(mu_task.shape) == 1:
+            # Single action
+            np_mu_proj, np_std_proj = self.projector.solve(
+                np_mu_base, np_std_base, np_mu_task, np_std_task
+            )
+        else:
+            # Batch of actions
+            for i in range(np_mu_task.shape[0]):
+                np_mu_proj[i], np_std_proj[i] = self.projector.solve(
+                    np_mu_base[i], np_std_base[i], np_mu_task[i], np_std_task[i]
+                )
+
+        # Convert back to torch tensors
+        mu = torch.Tensor(np_mu_proj).to(mu_task.device)
+        std = torch.Tensor(np_std_proj).to(std_task.device)
+
+        # Pre-squash distribution and sample
+        pi_distribution = Normal(mu, std)
+        x_t = pi_action
+        if x_t is None:
+            if deterministic:
+                x_t = mu
+            else:
+                x_t = pi_distribution.rsample()
+        y_t = torch.tanh(x_t)
+        pi_action = y_t * self.pi_task.act_scale + self.pi_task.act_bias
+
+        if with_log_prob:
+            logp_pi = pi_distribution.log_prob(x_t)
+            # Enforcing action bounds
+            logp_pi -= torch.log(self.pi_task.act_scale * (1 - y_t.pow(2)) + 1e-6)
+            logp_pi = logp_pi.sum(1, keepdim=True).squeeze(-1)
+            # why doesn't cleanrl squeeze?
+        else:
+            logp_pi = None
+
+        return pi_action, logp_pi, pi_distribution.entropy(), x_t
 
     def act(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
-        """Sample action from actor."""
-        # TODO
-        pass
-        # return self.pi_task.forward(obs, None, deterministic, False)[0]
+        """Sample projected action from actor."""
+        return self.pi_task_projected_forward(obs, None, deterministic, False)[0]
 
     def set_alpha(self, alpha: float = 1.0) -> None:
         assert alpha >= 1.0, "alpha >= required (alpha: {a})".format(a=alpha)
