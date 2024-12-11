@@ -1,4 +1,5 @@
 import math
+import pickle
 from concurrent.futures import ProcessPoolExecutor
 from logging import warning
 from typing import Container
@@ -14,21 +15,27 @@ class ScenarioDatabase:
     """A class for storing and updating a scenario database."""
 
     def __init__(
-        self, num_envs: int, max_episode_length: int, num_scenarios: int
+        self, num_envs: int, max_episode_length: int, max_num_scenarios: int
     ) -> None:
         self.num_envs = num_envs
         self.max_episode_length = max_episode_length
-        self.num_scenarios = num_scenarios
-        self.reset()
+        self.max_num_scenarios = max_num_scenarios
+        self.reset_all()
 
-    def reset(self) -> None:
+    def reset_all(self) -> None:
         """Reset the scenario database."""
         self.scenario_data = np.full(
-            (self.num_scenarios, self.max_episode_length + 1), False, dtype=bool
+            (self.max_num_scenarios, self.max_episode_length + 1), False, dtype=bool
         )
         self.active_scenarios = np.arange(self.num_envs, dtype=int)
+        self.num_collected_scenarios = 0
         self.timesteps = np.zeros(self.num_envs, dtype=int)
         self.epsilons_dict = {}
+
+    def reset_active_scenarios(self) -> None:
+        """Reset the active scenarios."""
+        self.timesteps = np.zeros(self.num_envs, dtype=int)
+        self.scenario_data[self.active_scenarios] = False
 
     def update(
         self,
@@ -38,14 +45,14 @@ class ScenarioDatabase:
     ) -> None:
         """Update the scenario database."""
         # For each active scenario, check task status
-        if not any(self.active_scenarios < self.num_scenarios):
+        if not any(self.active_scenarios < self.max_num_scenarios):
             warning(
-                "All scenarios have already been collected; this update will be ignored."
+                "Max no. scenarios have already been collected; this update will be ignored."
             )
         else:
             for p_idx in range(self.num_envs):
                 # If the scenario is to be collected
-                if self.active_scenarios[p_idx] < self.num_scenarios:
+                if self.active_scenarios[p_idx] < self.max_num_scenarios:
                     # If the task is done:
                     if done[p_idx]:
                         # If the task is done because the goal was achieved, mark the task as successful
@@ -67,6 +74,8 @@ class ScenarioDatabase:
                             ] = False
                         # The scenario pointer now tracks next scenario
                         self.active_scenarios[p_idx] = np.max(self.active_scenarios) + 1
+                        # Increment number of collected scenarios
+                        self.num_collected_scenarios += 1
                         # Reset the time step for the next scenario
                         self.timesteps[p_idx] = 0
                     else:
@@ -75,11 +84,13 @@ class ScenarioDatabase:
 
     def get_num_successes(self) -> NDArray:
         """Get the number of successes in the scenario database by each timestep."""
-        return self.scenario_data.sum(axis=0)
+        return self.scenario_data[: self.num_collected_scenarios].sum(axis=0)
 
     def get_num_failures(self) -> NDArray:
         """Get the number of failures in the scenario database by each timestep."""
-        return np.logical_not(self.scenario_data).sum(axis=0)
+        return np.logical_not(self.scenario_data[: self.num_collected_scenarios]).sum(
+            axis=0
+        )
 
     def get_selected_epsilons(
         self,
@@ -105,7 +116,7 @@ class ScenarioDatabase:
                     unique_ks,
                     estimate_epsilon_parallel(
                         conf=conf,
-                        N=self.num_scenarios,
+                        N=self.num_collected_scenarios,
                         k=unique_ks,
                         tol=tol,
                         cutoff=cutoff,
@@ -121,7 +132,12 @@ class ScenarioDatabase:
         return epsilons
 
     def get_all_epsilons(
-        self, conf: float, tol: float = 1e-5, cutoff: float = 1.0, it_max: int = 100
+        self,
+        conf: float,
+        force_recompute: bool = True,
+        tol: float = 1e-5,
+        cutoff: float = 1.0,
+        it_max: int = 100,
     ) -> NDArray:
         """
         Get epsilon for each timestep, for a given confidence level.
@@ -130,16 +146,15 @@ class ScenarioDatabase:
 
         Note that increasing confidence level takes exponentially longer to compute.
         """
-        # TODO: saving does not account for different tol and cutoff values
-        if conf not in self.epsilons_dict:
-            # Compute epsilons if not already in dictionary
+        if (conf not in self.epsilons_dict) or force_recompute:
+            # Compute epsilons
             unique_ks = np.unique(self.get_num_failures())
             epsilon_dict = dict(
                 zip(
                     unique_ks,
                     estimate_epsilon_parallel(
                         conf=conf,
-                        N=self.num_scenarios,
+                        N=self.num_collected_scenarios,
                         ks=unique_ks,
                         tol=tol,
                         cutoff=cutoff,
@@ -157,6 +172,7 @@ class ScenarioDatabase:
         confs: Container[float],
         plot_empirical: bool = False,
         alphas: Container[float] = [1.0],
+        force_recompute: bool = True,
         tol: float = 1e-5,
         cutoff: float = 1.0,
         it_max: int = 100,
@@ -174,12 +190,16 @@ class ScenarioDatabase:
                 emp_str = r"$\alpha={a}, \frac{{k}}{{N}}$ (empirical)".format(
                     a=alpha,
                 )
-                epsilons = self.get_num_failures() / self.num_scenarios
+                epsilons = self.get_num_failures() / self.num_collected_scenarios
                 epsilons = np.minimum(epsilons * alpha_array, 1.0)
                 ax.plot(epsilons, label=emp_str)
         for conf in confs:
             epsilons = self.get_all_epsilons(
-                conf=conf, tol=tol, cutoff=cutoff, it_max=it_max
+                conf=conf,
+                force_recompute=force_recompute,
+                tol=tol,
+                cutoff=cutoff,
+                it_max=it_max,
             )
             for alpha in alphas:
                 alpha_array = alpha**indices
@@ -193,9 +213,26 @@ class ScenarioDatabase:
         ax.grid(which="major")
         ax.grid(which="minor", linestyle="--", alpha=0.5)
         ax.legend()
-        title_str = f"Policy Failure Probability Bounds, N={self.num_scenarios}"
+        title_str = (
+            f"Policy Failure Probability Bounds, N={self.num_collected_scenarios}"
+        )
         ax.title.set_text(title_str)
         return fig, ax
+
+
+def save_scenario_database(db: ScenarioDatabase, filename: str) -> None:
+    """Save a scenario database to a file."""
+    assert ".pkl" in filename, "filename must have .pkl extension."
+    with open(filename, "wb") as file:
+        pickle.dump(db, file, pickle.HIGHEST_PROTOCOL)
+
+
+def load_scenario_database(filename: str) -> ScenarioDatabase:
+    """Load a scenario database from a file."""
+    assert ".pkl" in filename, "filename must have .pkl extension."
+    with open(filename, "rb") as file:
+        db = pickle.load(file)
+    return db
 
 
 def log_binomial_coefficient(N: int, k: int) -> float:
