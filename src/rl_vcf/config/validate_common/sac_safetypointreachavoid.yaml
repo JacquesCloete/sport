@@ -1,0 +1,14 @@
+gym_id: "SafetyPointReachAvoidReset0-v0"
+seed: 0
+total_eps: 1000
+torch_deterministic: true
+cuda: true
+capture_video: false
+capture_video_ep_interval: 250
+num_envs: 8
+preprocess_envs: false
+save_db: true
+save_db_ep_interval: 100
+policy_path: "policies/base_policy.pt"
+load_db: false
+load_db_path: "databases/base_policy_db.pkl"

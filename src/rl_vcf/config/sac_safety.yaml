@@ -3,5 +3,5 @@ defaults:
   - train: sac_safetypointreachavoid
   - train_common: sac_safetypointreachavoid
   - network: sac
-  - wandb: rl_vcf
+  - wandb: rl_vcf_train
 learn_safety: true

@@ -1,0 +1,29 @@
+from dataclasses import dataclass, field
+
+from rl_vcf.rl.dataclasses import WandBConfig
+
+# Structured configs for type checking
+
+
+@dataclass
+class ValidateCommonConfig:
+    gym_id: str  # name of gym environment
+    seed: int  # rng seed
+    total_eps: int  # total no. episodes (scenarios)
+    torch_deterministic: bool  # use deterministic torch algs
+    cuda: bool  # use gpu
+    capture_video: bool  # capture videos of agent over an episode
+    capture_video_ep_interval: int  # video capture episode interval
+    num_envs: int  # no. parallel environments
+    preprocess_envs: bool  # preprocess envs for continuous action spaces
+    save_db: bool  # save scenario database
+    save_db_ep_interval: int  # save scenario database episode interval
+    policy_path: str  # relative path to policy to validate
+    load_db: bool  # load existing scenario database
+    load_db_path: str  # relative path to existing scenario database
+
+
+@dataclass
+class ValidateConfig:
+    validate_common: ValidateCommonConfig = field(default_factory=ValidateCommonConfig)
+    wandb: WandBConfig = field(default_factory=WandBConfig)
