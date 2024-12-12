@@ -1,3 +1,5 @@
+import warnings
+
 import cvxpy as cp
 import numpy as np
 import torch
@@ -118,7 +120,9 @@ class ProjectionProblem:
             self.cp_mu_sig_sig_task.value = mu_task / np.square(std_task)
 
             # Project onto feasible set
-            _ = self.cp_problem.solve()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _ = self.cp_problem.solve()
 
             # Extract projected mean and std
             return self.cp_mu_proj.value, self.cp_sig_proj.value

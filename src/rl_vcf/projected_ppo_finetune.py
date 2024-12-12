@@ -382,7 +382,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
     torch.manual_seed(cfg.train_common.seed)
     torch.backends.cudnn.deterministic = cfg.train_common.torch_deterministic
 
-    # Environment setup for critic retargetting
+    # Environment setup for critic retargeting
     # Note: vectorized envs
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [

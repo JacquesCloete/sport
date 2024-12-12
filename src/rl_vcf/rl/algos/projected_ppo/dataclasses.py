@@ -25,7 +25,7 @@ class TrainProjectedPPOConfig:
     target_kl: float | None  # target KL divergence for early stopping
     base_policy_path: str  # relative path to base policy
     use_base_policy_critic_structure: bool  # use base policy critic network structure
-    warmup_total_timesteps: int  # total no. warm-up steps for critic retargetting
+    warmup_total_timesteps: int  # total no. warm-up steps for critic retargeting
     warmup_seed: int  # seed for warm-up
     alpha: float  # Maximum policy ratio for projection
 
