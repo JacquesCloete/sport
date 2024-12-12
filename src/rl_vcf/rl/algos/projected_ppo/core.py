@@ -190,6 +190,21 @@ class MLPProjectedActorCritic(nn.Module):
         """Get value from critic."""
         return self.v.forward(obs)
 
+    def get_base_action_and_value(
+        self, obs: torch.Tensor, act: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample action (and log-prob) from base policy actor and get value from critic."""
+        act, logp_a, entropy, x_t = self.pi_base.forward(
+            obs, act, deterministic=False, with_log_prob=True
+        )
+        return (
+            act,
+            logp_a,
+            entropy,
+            self.v.forward(obs),
+            x_t,
+        )
+
     def get_unprojected_action_and_value(
         self, obs: torch.Tensor, act: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -253,10 +268,10 @@ class MLPProjectedActorCritic(nn.Module):
         std_task = torch.exp(log_std_task)
 
         # Convert to numpy arrays
-        np_mu_base = mu_base.detach().numpy()
-        np_std_base = std_base.detach().numpy()
-        np_mu_task = mu_task.detach().numpy()
-        np_std_task = std_task.detach().numpy()
+        np_mu_base = mu_base.detach().cpu().numpy()
+        np_std_base = std_base.detach().cpu().numpy()
+        np_mu_task = mu_task.detach().cpu().numpy()
+        np_std_task = std_task.detach().cpu().numpy()
 
         np_mu_proj = np.zeros_like(np_mu_task)
         np_std_proj = np.zeros_like(np_std_task)

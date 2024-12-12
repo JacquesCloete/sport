@@ -3,9 +3,10 @@ import os
 import random
 import time
 
-import gymnasium as gym
+import gymnasium as gym  # noqa: F401
 import hydra
 import numpy as np
+import safety_gymnasium
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -16,14 +17,16 @@ from omegaconf import OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from rl_vcf.rl.algos.ppo.core import MLPActorCritic
-from rl_vcf.rl.algos.ppo.dataclasses import PPOConfig
-from rl_vcf.rl.utils import make_env
+from rl_vcf.rl.algos.projected_ppo.core import MLPProjectedActorCritic
+from rl_vcf.rl.algos.projected_ppo.dataclasses import ProjectedPPOConfig
+from rl_vcf.rl.utils import get_actor_structure, make_env_safety
 
 
 # Need to run everything inside hydra main function
-@hydra.main(config_path="config", config_name="ppo", version_base="1.3")
-def main(cfg: PPOConfig) -> None:
+@hydra.main(
+    config_path="config", config_name="projected_ppo_finetune", version_base="1.3"
+)
+def main(cfg: ProjectedPPOConfig) -> None:
     # Print the config
     print(OmegaConf.to_yaml(cfg))
 
@@ -38,6 +41,7 @@ def main(cfg: PPOConfig) -> None:
         run_name = HydraConfig.get().run.dir
 
     working_dir = os.getcwd()
+    original_dir = hydra.utils.get_original_cwd()
     print(f"Working directory : {working_dir}")
     # print(f"Test : {run_name}")
 
@@ -73,24 +77,24 @@ def main(cfg: PPOConfig) -> None:
     )
 
     # Seeding
-    random.seed(cfg.train_common.seed)
-    np.random.seed(cfg.train_common.seed)
-    torch.manual_seed(cfg.train_common.seed)
+    random.seed(cfg.train.warmup_seed)
+    np.random.seed(cfg.train.warmup_seed)
+    torch.manual_seed(cfg.train.warmup_seed)
     torch.backends.cudnn.deterministic = cfg.train_common.torch_deterministic
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() and cfg.train_common.cuda else "cpu"
     )
 
-    # Environment setup
+    # Environment setup for critic retargetting
     # Note: vectorized envs
-    envs = gym.vector.SyncVectorEnv(
+    envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [
-            make_env(
+            make_env_safety(
                 cfg.train_common.gym_id,
                 i,
-                cfg.train_common.seed + i,
-                cfg.train_common.capture_video,
+                cfg.train.warmup_seed + i,
+                False,
                 cfg.train_common.capture_video_ep_interval,
                 cfg.train_common.preprocess_envs,
             )
@@ -116,20 +120,53 @@ def main(cfg: PPOConfig) -> None:
             )
         os.makedirs(policies_folder, exist_ok=True)
 
+    # Load policy state dict
+    abs_base_policy_path = os.path.join(original_dir, cfg.train.base_policy_path)
+    assert os.path.exists(
+        abs_base_policy_path
+    ), "Base policy path {path} does not exist".format(path=abs_base_policy_path)
+    loaded_state_dict = torch.load(
+        abs_base_policy_path, weights_only=True, map_location=device
+    )
+
+    # Construct agent from state dict
+    loaded_hidden_sizes, loaded_activation = get_actor_structure(
+        loaded_state_dict, envs.single_observation_space, envs.single_action_space
+    )
+
+    if cfg.train.use_base_policy_critic_structure:
+        critic_hidden_sizes = loaded_hidden_sizes
+        critic_activation = loaded_activation
+    else:
+        critic_hidden_sizes = cfg.network.hidden_sizes
+        critic_activation = cfg.network.activation
+
     # Create agent
-    agent = MLPActorCritic(
-        envs.single_observation_space,
-        envs.single_action_space,
-        cfg.network.hidden_sizes,
-        eval("nn." + cfg.network.activation + "()"),
-        state_dependent_std=cfg.train.state_dependent_std,
+    agent = MLPProjectedActorCritic(
+        observation_space=envs.single_observation_space,
+        action_space=envs.single_action_space,
+        hidden_sizes_base=loaded_hidden_sizes,
+        activation_base=eval("nn." + loaded_activation + "()"),
+        hidden_sizes_task=loaded_hidden_sizes,
+        activation_task=eval("nn." + loaded_activation + "()"),
+        hidden_sizes_critic=critic_hidden_sizes,
+        activation_critic=eval("nn." + critic_activation + "()"),
+        alpha=cfg.train.alpha,
     ).to(device)
     print(agent)
 
-    # Create optimizer
+    agent.pi_base.load_state_dict(loaded_state_dict, strict=True)
+    agent.pi_task.load_state_dict(loaded_state_dict, strict=True)
+    agent.to(device)
+
+    # Create optimizers
     optimizer = optim.Adam(
         agent.parameters(), lr=cfg.train.lr, eps=cfg.train.adam_epsilon
     )  # default torch epsilon of 1e-8 found to be better
+    # Optimizer for critic retargetting
+    v_optimizer = optim.Adam(
+        agent.v.parameters(), lr=cfg.train.lr, eps=cfg.train.adam_epsilon
+    )
 
     # ALGO LOGIC: Storage setup
     observations = torch.zeros(
@@ -145,11 +182,225 @@ def main(cfg: PPOConfig) -> None:
     dones = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
     values = torch.zeros((cfg.train.num_steps, cfg.train_common.num_envs)).to(device)
     # Store untransformed actions when using state-dependent std (SAC-like policy)
-    if cfg.train.state_dependent_std:
-        x_ts = torch.zeros(
-            (cfg.train.num_steps, cfg.train_common.num_envs)
-            + envs.single_action_space.shape
-        ).to(device)
+    x_ts = torch.zeros(
+        (cfg.train.num_steps, cfg.train_common.num_envs)
+        + envs.single_action_space.shape
+    ).to(device)
+
+    ########################################################################################
+
+    # Freeze task policy network
+    for p in agent.pi_task.parameters():
+        p.requires_grad = False
+
+    # Critic retargetting stage (learn critic for the base policy in the new environment)
+    global_step = 0
+    start_time = time.time()
+    next_obs = torch.Tensor(
+        envs.reset(
+            seed=[cfg.train.warmup_seed + i for i in range(cfg.train_common.num_envs)]
+        )[
+            0  # observations are first element of env reset output
+        ]
+    ).to(device)
+    next_done = torch.zeros(cfg.train_common.num_envs).to(device)
+
+    batch_size = int(cfg.train.num_steps * cfg.train_common.num_envs)
+    num_updates = cfg.train.warmup_total_timesteps // batch_size
+    minibatch_size = int(batch_size // cfg.train.num_minibatches)
+
+    for update in tqdm(range(1, num_updates + 1)):  # update networks using batch data
+        # Annealing the learning rate
+        if cfg.train.anneal_lr:
+            # annealing helps agents obtain higher episodic return
+            frac = 1.0 - (update - 1.0) / num_updates  # linear annealing (to 0)
+            lr_now = cfg.train.lr * frac
+            v_optimizer.param_groups[0]["lr"] = lr_now
+
+        for step in range(0, cfg.train.num_steps):  # collect batch data
+            # note the batch data gets overwritten in each update loop
+            global_step += 1 * cfg.train_common.num_envs
+            observations[step] = next_obs
+            dones[step] = next_done
+
+            # ALGO LOGIC: action logic
+            with torch.no_grad():  # don't need to cache gradients during rollout
+                act, logprob, _, value, x_t = agent.get_base_action_and_value(next_obs)
+                # Need to also store untransformed actions for state-dependent std
+                x_ts[step] = x_t
+                values[step] = value.flatten()
+            actions[step] = act
+            logprobs[step] = logprob
+
+            # Environment step
+            next_obs, rew, cost, term, trunc, info = envs.step(act.cpu().numpy())
+            rewards[step] = torch.tensor(rew).to(device).view(-1)
+            done = np.logical_or(
+                term,
+                trunc,
+            )  # for now, let done be when terminated (task success/failure) or truncated (time limit)
+            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(
+                done
+            ).to(device)
+
+        # Bootstrap reward if not done (take value at next obs as end-of-rollout value)
+        # Note that for vectorized environments, each environment auto-resets when done
+        # So when we step, we actually see the initial observation of the next episode
+        # So if we want the final observation of the previous episode, we look in info
+        # But we don't have to do that here because we only bootstrap if not done!
+        # See SAC implementation for when you need the final observation when done
+        with torch.no_grad():
+            next_value = agent.get_value(next_obs).reshape(1, -1)
+            if cfg.train.gae:
+                # GAE, implemented as in the original PPO code (causes slightly different adv/ret!)
+                # performs better than N-step returns
+                advantages = torch.zeros_like(rewards).to(device)
+                last_gae_lam = 0
+                for t in reversed(range(cfg.train.num_steps)):
+                    if t == cfg.train.num_steps - 1:
+                        # bootstrap if not done
+                        next_non_terminal = 1.0 - next_done
+                        next_values = next_value
+                    else:
+                        next_non_terminal = 1.0 - dones[t + 1]
+                        next_values = values[t + 1]
+                    delta = (
+                        rewards[t]
+                        + cfg.train.gamma * next_values * next_non_terminal
+                        - values[t]
+                    )
+                    advantages[t] = last_gae_lam = (
+                        delta
+                        + cfg.train.gamma
+                        * cfg.train.gae_lambda
+                        * next_non_terminal
+                        * last_gae_lam
+                    )
+                returns = (
+                    advantages + values
+                )  # corresponds to TD(lambda) for value estimation
+            else:
+                # the typical method of advantage calculation
+                returns = torch.zeros_like(rewards).to(device)
+                for t in reversed(range(cfg.train.num_steps)):
+                    if t == cfg.train.num_steps - 1:
+                        # bootstrap if not done
+                        next_non_terminal = 1.0 - next_done
+                        next_return = next_value
+                    else:
+                        next_non_terminal = 1.0 - dones[t + 1]
+                        next_return = returns[t + 1]
+                    returns[t] = (
+                        rewards[t] + cfg.train.gamma * next_non_terminal * next_return
+                    )
+                advantages = returns - values
+
+        # flatten the batch
+        b_observations = observations.reshape(
+            (-1,) + envs.single_observation_space.shape
+        )
+        b_logprobs = logprobs.reshape(-1)
+        # Use untransformed actions for state-dependent std
+        b_actions = x_ts.reshape((-1,) + envs.single_action_space.shape)
+        b_advantages = advantages.reshape(-1)
+        b_returns = returns.reshape(-1)
+        b_values = values.reshape(-1)
+
+        # Update critic network
+        b_inds = np.arange(batch_size)
+        clipfracs = []  # measures how often clipping is triggered
+        for epoch in range(cfg.train.update_epochs):
+            np.random.shuffle(b_inds)  # shuffle data in batch
+            for start in range(0, batch_size, minibatch_size):
+                # update using each minibatch (don't use the entire batch for one update!)
+                # fetch minibatches by iterating through batch (don't randomly sample data!)
+                end = start + minibatch_size
+                mb_inds = b_inds[start:end]  # get minibatch indices for update step
+
+                # Get new values
+                _, new_logprobs, entropies, new_values, _ = (
+                    agent.get_base_action_and_value(
+                        b_observations[mb_inds], b_actions[mb_inds]
+                    )
+                )
+
+                # Clipped value loss
+                # Note: no evidence of clipping helping with performance
+                # In fact, it can even hurt performance!
+                new_values = new_values.view(-1)
+                if cfg.train.clip_vloss:
+                    v_loss_unclipped = (new_values - b_returns[mb_inds]) ** 2
+                    v_clipped = b_values[mb_inds] + torch.clamp(
+                        new_values - b_values[mb_inds],
+                        -cfg.train.clip_coef,
+                        cfg.train.clip_coef,
+                    )
+                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                    v_loss = 0.5 * v_loss_max.mean()
+                else:
+                    v_loss = 0.5 * ((new_values - b_returns[mb_inds]) ** 2).mean()
+
+                # Update critic network
+                v_optimizer.zero_grad()
+                v_loss.backward()
+                # Note: clip gradient norm for stability
+                # Slightly improves performance
+                nn.utils.clip_grad_norm_(agent.v.parameters(), cfg.train.max_grad_norm)
+                v_optimizer.step()
+
+        y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+        var_y = np.var(y_true)
+        # explained variance tells you if your value function is a good indicator of your returns
+        explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+        # Write training info to tensorboard
+        writer.add_scalar(
+            "charts/warmup_learning_rate",
+            v_optimizer.param_groups[0]["lr"],
+            global_step,
+        )
+        writer.add_scalar("losses/warmup_value_loss", v_loss.item(), global_step)
+        writer.add_scalar(
+            "losses/warmup_explained_variance", explained_var, global_step
+        )
+        writer.add_scalar(
+            "charts/warmup_sps",
+            int(global_step / (time.time() - start_time)),
+            global_step,
+        )
+
+    # Unfreeze Q networks
+    for p in agent.pi_task.parameters():
+        p.requires_grad = True
+
+    ########################################################################################
+
+    # Seeding
+    random.seed(cfg.train_common.seed)
+    np.random.seed(cfg.train_common.seed)
+    torch.manual_seed(cfg.train_common.seed)
+    torch.backends.cudnn.deterministic = cfg.train_common.torch_deterministic
+
+    # Environment setup for critic retargetting
+    # Note: vectorized envs
+    envs = safety_gymnasium.vector.SafetySyncVectorEnv(
+        [
+            make_env_safety(
+                cfg.train_common.gym_id,
+                i,
+                cfg.train_common.seed + i,
+                cfg.train_common.capture_video,
+                cfg.train_common.capture_video_ep_interval,
+                cfg.train_common.preprocess_envs,
+            )
+            for i in range(cfg.train_common.num_envs)
+        ]
+    )
+
+    # Episode counter
+    # To be consistent with episode tracking for videos, track episode of each env separately
+    episode_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
 
     # Start training
     global_step = 0
@@ -183,16 +434,17 @@ def main(cfg: PPOConfig) -> None:
 
             # ALGO LOGIC: action logic
             with torch.no_grad():  # don't need to cache gradients during rollout
-                act, logprob, _, value, x_t = agent.get_action_and_value(next_obs)
-                if cfg.train.state_dependent_std:
-                    # Need to also store untransformed actions for state-dependent std
-                    x_ts[step] = x_t
+                act, logprob, _, value, x_t = agent.get_projected_action_and_value(
+                    next_obs
+                )
+                # Need to also store untransformed actions for state-dependent std
+                x_ts[step] = x_t
                 values[step] = value.flatten()
             actions[step] = act
             logprobs[step] = logprob
 
             # Environment step
-            next_obs, rew, term, trunc, info = envs.step(act.cpu().numpy())
+            next_obs, rew, cost, term, trunc, info = envs.step(act.cpu().numpy())
             rewards[step] = torch.tensor(rew).to(device).view(-1)
             done = np.logical_or(
                 term,
@@ -232,9 +484,9 @@ def main(cfg: PPOConfig) -> None:
                         torch.save(agent.state_dict(), model_name)
                         # Save policy separately as well
                         policy_name = (
-                            f"policies/rl-policy-episode-{episode_count[0]}.pt"
+                            f"policies/rl-task-policy-episode-{episode_count[0]}.pt"
                         )
-                        torch.save(agent.pi.state_dict(), policy_name)
+                        torch.save(agent.pi_task.state_dict(), policy_name)
 
                 writer.add_scalar(
                     "charts/episode_count_per_env",
@@ -301,11 +553,8 @@ def main(cfg: PPOConfig) -> None:
             (-1,) + envs.single_observation_space.shape
         )
         b_logprobs = logprobs.reshape(-1)
-        if cfg.train.state_dependent_std:
-            # Use untransformed actions for state-dependent std
-            b_actions = x_ts.reshape((-1,) + envs.single_action_space.shape)
-        else:
-            b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+        # Use untransformed actions for state-dependent std
+        b_actions = x_ts.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
@@ -322,8 +571,10 @@ def main(cfg: PPOConfig) -> None:
                 mb_inds = b_inds[start:end]  # get minibatch indices for update step
 
                 # Get policy ratio for clipping and new values
-                _, new_logprobs, entropies, new_values, _ = agent.get_action_and_value(
-                    b_observations[mb_inds], b_actions[mb_inds]
+                _, new_logprobs, entropies, new_values, _ = (
+                    agent.get_unprojected_action_and_value(
+                        b_observations[mb_inds], b_actions[mb_inds]
+                    )
                 )
                 logratios = new_logprobs - b_logprobs[mb_inds]
                 ratios = logratios.exp()

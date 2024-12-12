@@ -1,0 +1,6 @@
+defaults:
+  - hydra: chdir
+  - train: projected_ppo_safetypointreachavoid
+  - train_common: projected_ppo_safetypointreachavoid
+  - network: ppo
+  - wandb: rl_vcf_finetune
