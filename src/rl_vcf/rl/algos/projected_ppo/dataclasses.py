@@ -28,6 +28,9 @@ class TrainProjectedPPOConfig:
     warmup_total_timesteps: int  # total no. warm-up steps for critic retargeting
     warmup_seed: int  # seed for warm-up
     alpha: float  # Maximum policy ratio for projection
+    record_warmup_predicted_discounted_return: (
+        bool  # log predicted discounted return during warm-up
+    )
 
 
 @dataclass

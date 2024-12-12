@@ -209,6 +209,12 @@ def main(cfg: ProjectedPPOConfig) -> None:
     num_updates = cfg.train.warmup_total_timesteps // batch_size
     minibatch_size = int(batch_size // cfg.train.num_minibatches)
 
+    if cfg.train.record_warmup_predicted_discounted_return:
+        # Value prediction at start of episode for logging
+        pred_return = agent.v.forward(next_obs[0]).item()
+        discounted_return = 0
+        discount_factor = 1.0
+
     for update in tqdm(range(1, num_updates + 1)):  # update networks using batch data
         # Annealing the learning rate
         if cfg.train.anneal_lr:
@@ -242,6 +248,26 @@ def main(cfg: ProjectedPPOConfig) -> None:
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(
                 done
             ).to(device)
+
+            # Log episodic returns at start of episode to check how critic is doing
+            if cfg.train.record_warmup_predicted_discounted_return:
+                discounted_return += rew[0] * discount_factor
+                discount_factor *= cfg.train.gamma
+                if done[0]:
+                    writer.add_scalar(
+                        "charts/warmup_episodic_discounted_return",
+                        discounted_return,
+                        global_step=global_step,
+                    )
+                    writer.add_scalar(
+                        "charts/warmup_predicted_discounted_return",
+                        pred_return,
+                        global_step=global_step,
+                    )
+                    # get predicted return at start of next episode
+                    pred_return = agent.v.forward(next_obs[0]).item()
+                    discounted_return = 0
+                    discount_factor = 1.0
 
         # Bootstrap reward if not done (take value at next obs as end-of-rollout value)
         # Note that for vectorized environments, each environment auto-resets when done
