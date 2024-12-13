@@ -35,4 +35,4 @@ class SACSafetyConfig:
     train_common: TrainCommonConfig = field(default_factory=TrainCommonConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
-    learn_safety: bool = False
+    learn_safety: bool = False  # learn to avoid constraint violations

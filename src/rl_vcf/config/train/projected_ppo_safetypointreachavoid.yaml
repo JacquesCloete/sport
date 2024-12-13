@@ -1,4 +1,4 @@
-lr: 1.0e-7
+lr: 1.0e-5
 v_lr: 3.0e-4
 anneal_lr: true
 adam_epsilon: 1.0e-8
@@ -19,6 +19,6 @@ base_policy_path: "policies/base_policy.pt"
 use_base_policy_critic_structure: true
 warmup_total_timesteps: 50000
 warmup_seed: 0
-alpha: 10.0
-record_warmup_predicted_discounted_return: false
+alpha: 100.0
+record_warmup_predicted_discounted_return: true
 check_max_policy_ratios: true

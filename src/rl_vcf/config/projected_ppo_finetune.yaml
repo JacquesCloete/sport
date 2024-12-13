@@ -4,3 +4,5 @@ defaults:
   - train_common: projected_ppo_safetypointreachavoid
   - network: ppo
   - wandb: rl_vcf_finetune
+  - _self_
+negate_reward: true

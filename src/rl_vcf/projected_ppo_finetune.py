@@ -240,6 +240,8 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
             # Environment step
             next_obs, rew, cost, term, trunc, info = envs.step(act.cpu().numpy())
+            if cfg.negate_reward:
+                rew = -rew
             rewards[step] = torch.tensor(rew).to(device).view(-1)
             done = np.logical_or(
                 term,
@@ -486,6 +488,8 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
             # Environment step
             next_obs, rew, cost, term, trunc, info = envs.step(act.cpu().numpy())
+            if cfg.negate_reward:
+                rew = -rew
             rewards[step] = torch.tensor(rew).to(device).view(-1)
             done = np.logical_or(
                 term,

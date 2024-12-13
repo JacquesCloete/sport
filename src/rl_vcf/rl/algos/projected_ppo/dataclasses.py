@@ -41,3 +41,4 @@ class ProjectedPPOConfig:
     train_common: TrainCommonConfig = field(default_factory=TrainCommonConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
+    negate_reward: bool = False  # debugging flag that negates reward (rew = -rew)
