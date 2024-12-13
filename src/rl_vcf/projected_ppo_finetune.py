@@ -165,7 +165,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
     )  # default torch epsilon of 1e-8 found to be better
     # Optimizer for critic retargetting
     v_optimizer = optim.Adam(
-        agent.v.parameters(), lr=cfg.train.lr, eps=cfg.train.adam_epsilon
+        agent.v.parameters(), lr=cfg.train.v_lr, eps=cfg.train.adam_epsilon
     )
 
     # ALGO LOGIC: Storage setup
@@ -220,7 +220,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
         if cfg.train.anneal_lr:
             # annealing helps agents obtain higher episodic return
             frac = 1.0 - (update - 1.0) / num_updates  # linear annealing (to 0)
-            lr_now = cfg.train.lr * frac
+            lr_now = cfg.train.v_lr * frac
             v_optimizer.param_groups[0]["lr"] = lr_now
 
         for step in range(0, cfg.train.num_steps):  # collect batch data
@@ -460,9 +460,24 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
             # ALGO LOGIC: action logic
             with torch.no_grad():  # don't need to cache gradients during rollout
-                act, logprob, _, value, x_t = agent.get_projected_action_and_value(
-                    next_obs
+                act, logprob, _, value, x_t, log_task_base, log_proj_base = (
+                    agent.get_projected_action_and_value(
+                        next_obs,
+                        check_max_policy_ratios=cfg.train.check_max_policy_ratios,
+                    )
                 )
+                if cfg.train.check_max_policy_ratios:
+                    # note: log_task_base may contain infinities!
+                    writer.add_scalar(
+                        "charts/task_max_log_policy_ratio",
+                        log_task_base,
+                        global_step=global_step,
+                    )
+                    writer.add_scalar(
+                        "charts/proj_max_log_policy_ratio",
+                        log_proj_base,
+                        global_step=global_step,
+                    )
                 # Need to also store untransformed actions for state-dependent std
                 x_ts[step] = x_t
                 values[step] = value.flatten()

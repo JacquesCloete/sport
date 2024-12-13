@@ -16,6 +16,38 @@ from rl_vcf.rl.algos.ppo.core import (
 )
 
 ETA = 1e-8
+TOL = 1e-7
+
+
+def max_log_diag_gaussian_ratio(
+    mu1: NDArray, std1: NDArray, mu2: NDArray, std2: NDArray
+) -> NDArray:
+    """
+    Compute the maximum log probability ratio between two diagonal Gaussian distributions.
+
+    max_log_gaussian_ratio(mu1, std1, mu2, std2) = log(max_x N(mu2, std2)(x) / N(mu1, std1)(x))
+
+    The log is for numerical stability once the ratio gets large.
+    """
+    if np.any(std2 > std1):
+        # If the second distribution has a larger std, the ratio is infinite
+        return np.inf
+    elif (
+        np.all(mu1 - TOL <= mu2)
+        and np.all(mu2 <= mu1 + TOL)
+        and np.all(std1 - TOL <= std2)
+    ):
+        # If the two distributions are the same, the ratio is 1 (so log ratio is 0)
+        return 0.0
+    elif np.any(std2 == std1):
+        # If the second distribution has an equal std, the ratio (and log ratio) is infinite
+        return np.inf
+    else:
+        return (
+            np.log(std1).sum()
+            - np.log(std2).sum()
+            + 0.5 * ((mu2 - mu1) ** 2 / (std1**2 - std2**2)).sum()
+        )
 
 
 class ProjectionProblem:
@@ -225,15 +257,32 @@ class MLPProjectedActorCritic(nn.Module):
         )
 
     def get_projected_action_and_value(
-        self, obs: torch.Tensor, act: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        obs: torch.Tensor,
+        act: torch.Tensor | None = None,
+        check_max_policy_ratios: bool = False,
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        NDArray | None,
+        NDArray | None,
+    ]:
         """
         Sample projected action (and log-prob) from actor and get value from critic.
 
         Note that the projection means that we cannot get gradients for the projected action.
         """
-        act, logp_a, entropy, x_t = self.pi_task_projected_forward(
-            obs, act, deterministic=False, with_log_prob=True
+        act, logp_a, entropy, x_t, log_task_base, log_proj_base = (
+            self.pi_task_projected_forward(
+                obs,
+                act,
+                deterministic=False,
+                with_log_prob=True,
+                check_max_policy_ratios=check_max_policy_ratios,
+            )
         )
         return (
             act,
@@ -241,6 +290,8 @@ class MLPProjectedActorCritic(nn.Module):
             entropy,
             self.v.forward(obs),
             x_t,
+            log_task_base,
+            log_proj_base,
         )
 
     def pi_task_projected_forward(
@@ -249,7 +300,15 @@ class MLPProjectedActorCritic(nn.Module):
         pi_action: torch.Tensor | None = None,  # this must be untransformed action x_t
         deterministic: bool = False,
         with_log_prob: bool = True,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+        check_max_policy_ratios: bool = False,
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor | None,
+        torch.Tensor,
+        torch.Tensor,
+        NDArray | None,
+        NDArray | None,
+    ]:
 
         # Get base policy distribution
         net_out_base = self.pi_base.net(obs)
@@ -293,6 +352,29 @@ class MLPProjectedActorCritic(nn.Module):
                     np_mu_base[i], np_std_base[i], np_mu_task[i], np_std_task[i]
                 )
 
+        if check_max_policy_ratios:
+            # Compute max policy ratios
+            if np.size(mu_task.shape) == 1:
+                log_task_base = max_log_diag_gaussian_ratio(
+                    np_mu_base, np_std_base, np_mu_task, np_std_task
+                )
+                log_proj_base = max_log_diag_gaussian_ratio(
+                    np_mu_base, np_std_base, np_mu_proj, np_std_proj
+                )
+            else:
+                log_task_base = np.zeros(np_mu_task.shape[0])
+                log_proj_base = np.zeros(np_mu_task.shape[0])
+                for i in range(np_mu_task.shape[0]):
+                    log_task_base[i] = max_log_diag_gaussian_ratio(
+                        np_mu_base[i], np_std_base[i], np_mu_task[i], np_std_task[i]
+                    )
+                    log_proj_base[i] = max_log_diag_gaussian_ratio(
+                        np_mu_base[i], np_std_base[i], np_mu_proj[i], np_std_proj[i]
+                    )
+        else:
+            log_task_base = None
+            log_proj_base = None
+
         # Convert back to torch tensors
         mu = torch.Tensor(np_mu_proj).to(mu_task.device)
         std = torch.Tensor(np_std_proj).to(std_task.device)
@@ -317,11 +399,30 @@ class MLPProjectedActorCritic(nn.Module):
         else:
             logp_pi = None
 
-        return pi_action, logp_pi, pi_distribution.entropy(), x_t
+        return (
+            pi_action,
+            logp_pi,
+            pi_distribution.entropy(),
+            x_t,
+            log_task_base,
+            log_proj_base,
+        )
 
-    def act(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+    def act(
+        self,
+        obs: torch.Tensor,
+        deterministic: bool = False,
+        check_max_policy_ratios: bool = False,
+    ) -> tuple[torch.Tensor, NDArray | None, NDArray | None]:
         """Sample projected action from actor."""
-        return self.pi_task_projected_forward(obs, None, deterministic, False)[0]
+        action, _, _, _, log_task_base, log_proj_base = self.pi_task_projected_forward(
+            obs=obs,
+            act=None,
+            deterministic=deterministic,
+            with_log_prob=False,
+            check_max_policy_ratios=check_max_policy_ratios,
+        )
+        return action, log_task_base, log_proj_base
 
     def set_alpha(self, alpha: float = 1.0) -> None:
         assert alpha >= 1.0, "alpha >= required (alpha: {a})".format(a=alpha)

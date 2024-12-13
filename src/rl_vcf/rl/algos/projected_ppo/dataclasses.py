@@ -8,6 +8,7 @@ from rl_vcf.rl.dataclasses import NetworkConfig, TrainCommonConfig, WandBConfig
 @dataclass
 class TrainProjectedPPOConfig:
     lr: float  # learning rate
+    v_lr: float  # value function learning rate during warmup
     anneal_lr: bool  # toggle learning rate annealing
     adam_epsilon: float  # adam optimizer epsilon
     num_steps: int  # no. steps per environment per policy rollout
@@ -31,6 +32,7 @@ class TrainProjectedPPOConfig:
     record_warmup_predicted_discounted_return: (
         bool  # log predicted discounted return during warm-up
     )
+    check_max_policy_ratios: bool  # check max policy ratios during training
 
 
 @dataclass
