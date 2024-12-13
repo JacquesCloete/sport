@@ -1,0 +1,7 @@
+defaults:
+  - hydra: chdir
+  - validate_common: projected_ppo_safetypointreachavoid
+  - wandb: rl_vcf_validate
+  - _self_
+task_policy_path: "policies/task_policy.pt"
+alpha: 100.0

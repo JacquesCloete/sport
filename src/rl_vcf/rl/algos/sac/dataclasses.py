@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 from rl_vcf.rl.dataclasses import NetworkConfig, TrainCommonConfig, WandBConfig
+from rl_vcf.validate.dataclasses import ValidateCommonConfig
 
 # Structured configs for type checking
 
@@ -36,3 +37,9 @@ class SACSafetyConfig:
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
     learn_safety: bool = False  # learn to avoid constraint violations
+
+
+@dataclass
+class SACValidateConfig:
+    validate_common: ValidateCommonConfig = field(default_factory=ValidateCommonConfig)
+    wandb: WandBConfig = field(default_factory=WandBConfig)

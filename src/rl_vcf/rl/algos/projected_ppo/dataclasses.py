@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 from rl_vcf.rl.dataclasses import NetworkConfig, TrainCommonConfig, WandBConfig
+from rl_vcf.validate.dataclasses import ValidateCommonConfig
 
 # Structured configs for type checking
 
@@ -42,3 +43,11 @@ class ProjectedPPOConfig:
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
     negate_reward: bool = False  # debugging flag that negates reward (rew = -rew)
+
+
+@dataclass
+class ProjectedPPOValidateConfig:
+    validate_common: ValidateCommonConfig = field(default_factory=ValidateCommonConfig)
+    wandb: WandBConfig = field(default_factory=WandBConfig)
+    task_policy_path: str = "policies/task_policy.pt"  # relative path to task policy
+    alpha: float = 1.0  # Maximum policy ratio for projection

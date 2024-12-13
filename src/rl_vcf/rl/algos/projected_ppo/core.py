@@ -417,7 +417,7 @@ class MLPProjectedActorCritic(nn.Module):
         """Sample projected action from actor."""
         action, _, _, _, log_task_base, log_proj_base = self.pi_task_projected_forward(
             obs=obs,
-            act=None,
+            pi_action=None,
             deterministic=deterministic,
             with_log_prob=False,
             check_max_policy_ratios=check_max_policy_ratios,

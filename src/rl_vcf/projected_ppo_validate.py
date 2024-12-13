@@ -16,8 +16,8 @@ from omegaconf import OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from rl_vcf.rl.algos.sac.core import MLPActorCritic
-from rl_vcf.rl.algos.sac.dataclasses import SACValidateConfig
+from rl_vcf.rl.algos.projected_ppo.core import MLPProjectedActorCritic
+from rl_vcf.rl.algos.projected_ppo.dataclasses import ProjectedPPOValidateConfig
 from rl_vcf.rl.utils import get_actor_structure, make_env_safety, process_info
 from rl_vcf.validate.utils import (
     ScenarioDatabase,
@@ -27,8 +27,10 @@ from rl_vcf.validate.utils import (
 
 
 # Need to run everything inside hydra main function
-@hydra.main(config_path="config", config_name="sac_safety_validate", version_base="1.3")
-def main(cfg: SACValidateConfig) -> None:
+@hydra.main(
+    config_path="config", config_name="projected_ppo_validate", version_base="1.3"
+)
+def main(cfg: ProjectedPPOValidateConfig) -> None:
     # Print the config
     print(OmegaConf.to_yaml(cfg))
 
@@ -136,27 +138,42 @@ def main(cfg: SACValidateConfig) -> None:
                 )
             )
 
-    # Load policy state dict
-    abs_policy_path = os.path.join(original_dir, cfg.validate_common.policy_path)
-    assert os.path.exists(abs_policy_path), "Policy path {path} does not exist".format(
-        path=abs_policy_path
+    # Load policy state dicts
+    abs_base_policy_path = os.path.join(original_dir, cfg.validate_common.policy_path)
+    assert os.path.exists(
+        abs_base_policy_path
+    ), "Base policy path {path} does not exist".format(path=abs_base_policy_path)
+    base_loaded_state_dict = torch.load(
+        abs_base_policy_path, weights_only=True, map_location=device
     )
-    loaded_state_dict = torch.load(
-        abs_policy_path, weights_only=True, map_location=device
+    abs_task_policy_path = os.path.join(original_dir, cfg.task_policy_path)
+
+    assert os.path.exists(
+        abs_task_policy_path
+    ), "Task policy path {path} does not exist".format(path=abs_task_policy_path)
+    task_loaded_state_dict = torch.load(
+        abs_task_policy_path, weights_only=True, map_location=device
     )
 
-    # Construct agent from state dict
-    loaded_hidden_sizes, loaded_activation = get_actor_structure(
-        loaded_state_dict, envs.single_observation_space, envs.single_action_space
+    # Construct agent from state dicts
+    base_loaded_hidden_sizes, base_loaded_activation = get_actor_structure(
+        base_loaded_state_dict, envs.single_observation_space, envs.single_action_space
+    )
+    task_loaded_hidden_sizes, task_loaded_activation = get_actor_structure(
+        task_loaded_state_dict, envs.single_observation_space, envs.single_action_space
     )
 
-    agent = MLPActorCritic(
-        envs.single_observation_space,
-        envs.single_action_space,
-        loaded_hidden_sizes,
-        eval("nn." + loaded_activation + "()"),
+    agent = MLPProjectedActorCritic(
+        observation_space=envs.single_observation_space,
+        action_space=envs.single_action_space,
+        hidden_sizes_base=base_loaded_hidden_sizes,
+        activation_base=eval("nn." + base_loaded_activation + "()"),
+        hidden_sizes_task=task_loaded_hidden_sizes,
+        activation_task=eval("nn." + task_loaded_activation + "()"),
+        alpha=cfg.alpha,
     )
-    agent.pi.load_state_dict(loaded_state_dict, strict=True)
+    agent.pi_base.load_state_dict(base_loaded_state_dict, strict=True)
+    agent.pi_task.load_state_dict(task_loaded_state_dict, strict=True)
     agent.to(device)
 
     # Prevent storing gradients
@@ -186,7 +203,7 @@ def main(cfg: SACValidateConfig) -> None:
     with torch.no_grad():  # no gradient needed for testing
         while scenario_db.num_collected_scenarios < scenario_db.max_num_scenarios:
 
-            act = agent.act(torch.Tensor(obs).to(device))
+            act, _, _ = agent.act(torch.Tensor(obs).to(device))
 
             next_obs, _, _, term, trunc, info = envs.step(act.detach().cpu().numpy())
 
@@ -219,7 +236,7 @@ def main(cfg: SACValidateConfig) -> None:
                     % cfg.validate_common.save_db_ep_interval
                     == 0
                 ):
-                    save_scenario_database(scenario_db, "base_policy_db.pkl")
+                    save_scenario_database(scenario_db, "task_policy_db.pkl")
 
             pbar.update(max_num_scenarios_complete)
 
@@ -228,7 +245,7 @@ def main(cfg: SACValidateConfig) -> None:
 
     # Save final scenario database
     if cfg.validate_common.save_db:
-        save_scenario_database(scenario_db, "base_policy_db.pkl")
+        save_scenario_database(scenario_db, "task_policy_db.pkl")
 
     # Close envs
     envs.close()

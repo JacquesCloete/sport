@@ -1,6 +1,4 @@
-from dataclasses import dataclass, field
-
-from rl_vcf.rl.dataclasses import WandBConfig
+from dataclasses import dataclass
 
 # Structured configs for type checking
 
@@ -21,9 +19,3 @@ class ValidateCommonConfig:
     policy_path: str  # relative path to policy to validate
     load_db: bool  # load existing scenario database
     load_db_path: str  # relative path to existing scenario database
-
-
-@dataclass
-class ValidateConfig:
-    validate_common: ValidateCommonConfig = field(default_factory=ValidateCommonConfig)
-    wandb: WandBConfig = field(default_factory=WandBConfig)
