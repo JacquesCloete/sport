@@ -30,3 +30,13 @@ class TrainCommonConfig:
     preprocess_envs: bool  # preprocess envs for continuous action spaces
     save_model: bool  # save model weights
     save_model_ep_interval: int  # save model weights episode interval
+
+
+@dataclass
+class SafetyTrainCommonConfig:
+    learn_safety: bool  # learn to avoid constraint violations
+    sparse_reward: float  # sparse reward for achieving the goal
+    sparse_penalty: float  # sparse penalty for violating a constraint
+    dense_reward_coeff: float  # reward coefficient for getting closer to the goal
+    dense_penalty_coeff: float  # penalty coefficient for getting closer to a constraint
+    inactivity_penalty_coeff: float  # penalty coefficient for not doing anything

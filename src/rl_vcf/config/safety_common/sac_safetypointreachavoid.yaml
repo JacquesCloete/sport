@@ -1,0 +1,6 @@
+learn_safety: true
+sparse_reward: 1.0
+sparse_penalty: 1.0
+dense_reward_coeff: 0.1
+dense_penalty_coeff: 0.01
+inactivity_penalty_coeff: 0.01

@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from rl_vcf.rl.algos.sac.core import MLPActorCritic, ReplayBuffer
 from rl_vcf.rl.algos.sac.dataclasses import SACSafetyConfig
-from rl_vcf.rl.utils import make_env_safety
+from rl_vcf.rl.utils import make_env_safety, process_info
 
 
 # Need to run everything inside hydra main function
@@ -170,13 +170,15 @@ def main(cfg: SACSafetyConfig) -> None:
     )
 
     # Track whether the goal was achieved and whether a constraint was violated each episode
-    goal_achieved = False
-    goal_achieved_latch = False
-    constraint_violated = False
-    constraint_violated_latch = False
+    goal_achieved = np.array([False] * cfg.train_common.num_envs, dtype=bool)
+    goal_achieved_latch = np.array([False] * cfg.train_common.num_envs, dtype=bool)
+    constraint_violated = np.array([False] * cfg.train_common.num_envs, dtype=bool)
+    constraint_violated_latch = np.array(
+        [False] * cfg.train_common.num_envs, dtype=bool
+    )
 
     # Track how many times the goal was achieved each episode
-    goal_achieved_count = 0
+    goal_achieved_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
 
     # Start training
     start_time = time.time()
@@ -204,38 +206,48 @@ def main(cfg: SACSafetyConfig) -> None:
 
         # Environment step
         next_obs, rew, cost, term, trunc, info = envs.step(act.detach().cpu().numpy())
+        done = np.logical_or(term, trunc)
 
-        # Update latches
-        if term | trunc:
-            # note that normal info goes to "final_info" at the end of the episode
-            for item in info["final_info"]:
-                if item and "goal_met" in item:
-                    goal_achieved = item["goal_met"]
-                if item and "constraint_violated" in item:
-                    constraint_violated = item["constraint_violated"]
-        else:
-            goal_achieved = info["goal_met"]
-            constraint_violated = info["constraint_violated"]
+        goal_achieved, constraint_violated = process_info(info)
 
-        if goal_achieved:
-            goal_achieved_count += 1
-        goal_achieved_latch = goal_achieved_latch | goal_achieved
-        constraint_violated_latch = constraint_violated_latch | constraint_violated
+        goal_achieved_count += goal_achieved
+        goal_achieved_latch = np.logical_or(goal_achieved_latch, goal_achieved)
+        constraint_violated_latch = np.logical_or(
+            constraint_violated_latch, constraint_violated
+        )
 
         # Learn safety
         # TODO: improve safety learning
-        # TODO: support parallelization
-        if cfg.learn_safety:
-            rew = rew * 0.1  # dense reward (Euclidean distance)
+        if cfg.safety_common.learn_safety:
+            # TODO: intrinsic reward from RND to encourage exploration
+            # dense reward (Euclidean distance)
+            rew = rew * cfg.safety_common.dense_reward_coeff
+            # TODO: add option to penalize agent for Euclidean distance to hazards
+            for env_idx in range(cfg.train_common.num_envs):
 
-            if goal_achieved:
-                rew -= rew
-                rew += 1.0  # sparse reward
-            if term | trunc:
-                if (not goal_achieved_latch) | constraint_violated_latch:
-                    rew -= rew
-                    # rew = -cost
-                    rew += -1.0  # sparse penalty
+                if constraint_violated[env_idx]:
+                    # sparse penalty for violating constraint
+                    rew[env_idx] -= cfg.safety_common.sparse_penalty
+
+                elif goal_achieved[env_idx]:
+                    # sparse reward for achieving goal
+                    rew[env_idx] += cfg.safety_common.sparse_reward
+
+                # elif done[env_idx]:
+                #     # Does it actually work to penalize not achieving the goal at timeout?
+                #     # From the agent's POV it will look like a random cost spike,
+                #     # since the agent doesn't know what time it is (Markov!!!)
+                #     # All temporal information is lost when sent to the replay buffer.
+
+                #     # If we want the agent to not learn to do nothing, we should instead
+                #     # (slightly) penalize ALL time steps when not at the goal rather than
+                #     # confusing the agent with large negative rewards in random places!
+                #     rew[env_idx] -= 0.001  # sparse penalty for not achieving goal
+
+                else:
+                    # dense penalty for not achieving goal
+                    # TODO: maybe change to penalize being in the same state as the previous time step?
+                    rew[env_idx] -= cfg.safety_common.inactivity_penalty_coeff
 
         # Record episodic returns for plotting
         if "final_info" in info:
@@ -258,31 +270,31 @@ def main(cfg: SACSafetyConfig) -> None:
                         global_step=global_step,
                     )
             writer.add_scalar(
-                "charts/goal_achieved", goal_achieved_latch, global_step=global_step
+                "charts/goal_achieved", goal_achieved_latch[0], global_step=global_step
             )
             writer.add_scalar(
                 "charts/constraint_violated",
-                constraint_violated_latch,
+                constraint_violated_latch[0],
                 global_step=global_step,
             )
             writer.add_scalar(
                 "charts/task_success",
-                goal_achieved_latch & (not constraint_violated_latch),
+                goal_achieved_latch[0] & (not constraint_violated_latch[0]),
                 global_step=global_step,
             )
             writer.add_scalar(
                 "charts/goal_achieved_count",
-                goal_achieved_count,
+                goal_achieved_count[0],
                 global_step=global_step,
             )
 
         # Reset latches if at end of episode
-        if term | trunc:
-            goal_achieved_latch = False
-            constraint_violated_latch = False
-            goal_achieved_count = 0
+        for i, d in enumerate(done):
+            if d:
+                goal_achieved_latch[i] = False
+                constraint_violated_latch[i] = False
+                goal_achieved_count[i] = 0
 
-        done = np.logical_or(term, trunc)
         if done[0]:
             if cfg.train_common.save_model:
                 # To be consistent with episode tracking for videos,

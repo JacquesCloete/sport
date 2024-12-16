@@ -1,11 +1,11 @@
-gym_id: "SafetyPointReachAvoid2-v0"
+gym_id: "SafetyPointReachAvoidReset1-v0"
 seed: 0
-total_timesteps: 201000
+total_timesteps: 1000000
 torch_deterministic: true
 cuda: true
 capture_video: true
-capture_video_ep_interval: 25
+capture_video_ep_interval: 100
 num_envs: 1
 preprocess_envs: false
 save_model: true
-save_model_ep_interval: 25
+save_model_ep_interval: 100
