@@ -12,6 +12,23 @@ cd rl-vcf
 conda env create --file conda_envs/rl_vcf.yaml
 conda activate rl_vcf
 
+# Clone and install Jacques' forks of Gymnasium and Safety Gymnasium
+# (remember to have the rl_vcf conda environment activated before doing this!)
+cd ..
+git clone https://github.com/JacquesCloete/Gymnasium
+cd Gymnasium
+git checkout jacques/v0.28.1
+pip install .
+
+cd ..
+git clone https://github.com/JacquesCloete/safety-gymnasium
+cd safety-gymnasium
+git checkout jacques/v1.2.0
+pip install .
+
 # Install this project
-pip install -e .    # remember to have the conda environment activated before running this!
+# (remember to have the rl_vcf conda environment activated before doing this!)
+cd ..
+cd rl-vcf
+pip install -e .
 ```

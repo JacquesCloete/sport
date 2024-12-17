@@ -180,6 +180,9 @@ def main(cfg: SACSafetyConfig) -> None:
     # Track how many times the goal was achieved each episode
     goal_achieved_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
 
+    # Shaped episodic return
+    shaped_episodic_return = np.array([0.0] * cfg.train_common.num_envs, dtype=float)
+
     # Start training
     start_time = time.time()
     obs = torch.Tensor(
@@ -249,6 +252,8 @@ def main(cfg: SACSafetyConfig) -> None:
                     # TODO: maybe change to penalize being in the same state as the previous time step?
                     rew[env_idx] -= cfg.safety_common.inactivity_penalty_coeff
 
+        shaped_episodic_return += rew
+
         # Record episodic returns for plotting
         if "final_info" in info:
             # note info is usually empty but gets populated at end of episode
@@ -288,12 +293,18 @@ def main(cfg: SACSafetyConfig) -> None:
                 global_step=global_step,
             )
 
-        # Reset latches if at end of episode
+        # Reset latches and shaped episodic return if at end of episode
         for i, d in enumerate(done):
             if d:
                 goal_achieved_latch[i] = False
                 constraint_violated_latch[i] = False
                 goal_achieved_count[i] = 0
+                writer.add_scalar(
+                    "charts/shaped_episodic_return",
+                    shaped_episodic_return[i],
+                    global_step=global_step,
+                )
+                shaped_episodic_return[i] = 0.0
 
         if done[0]:
             if cfg.train_common.save_model:
