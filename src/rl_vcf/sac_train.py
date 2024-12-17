@@ -147,18 +147,21 @@ def main(cfg: SACConfig) -> None:
 
     # Automatic entropy tuning
     if cfg.train.autotune:
-        target_entropy = -torch.prod(
-            torch.Tensor(envs.single_action_space.shape).to(device)
-        ).item()
+        # Original paper suggests target_entropy = -dim(A)
+        # However increasing target entropy (coeff=0.1) can apparently help
+        target_entropy = (
+            -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
+            * cfg.train.targ_ent_coeff
+        )
         log_ent_coeff = torch.zeros(1, requires_grad=True, device=device)
         ent_coeff = log_ent_coeff.exp().item()
         ent_coeff_optimizer = optim.Adam([log_ent_coeff], lr=cfg.train.q_lr)
     else:
-        ent_coeff = cfg.train.ent_coef
+        ent_coeff = cfg.train.ent_coeff
 
-    # Not sure why this is in the cleanrl code
-    # including it causes warnings (gym output is np.float64)
+    # Not sure why this is in the cleanrl code:
     # envs.single_observation_space.dtype = np.float32
+    # including it causes warnings (gym output is np.float64)
 
     # Create replay buffer
     replay_buffer = ReplayBuffer(
@@ -168,7 +171,7 @@ def main(cfg: SACConfig) -> None:
         device,
     )
 
-    # Start training
+    # Initialize envs
     start_time = time.time()
     obs = torch.Tensor(
         envs.reset(
@@ -177,6 +180,8 @@ def main(cfg: SACConfig) -> None:
             0  # observations are first element of env reset output
         ]
     ).to(device)
+
+    # Start training
     for global_step in tqdm(range(cfg.train_common.total_timesteps)):
         # ALGO LOGIC: action logic
         with torch.no_grad():
@@ -307,6 +312,13 @@ def main(cfg: SACConfig) -> None:
                     policy_optimizer.zero_grad()
                     policy_loss.backward()
                     policy_optimizer.step()
+
+                    # Record policy entropy
+                    writer.add_scalar(
+                        "losses/log_pi",
+                        -log_pi.mean().item(),
+                        global_step=global_step,
+                    )
 
                     # Automatic entropy tuning
                     if cfg.train.autotune:

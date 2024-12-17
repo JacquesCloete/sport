@@ -148,18 +148,21 @@ def main(cfg: SACSafetyConfig) -> None:
 
     # Automatic entropy tuning
     if cfg.train.autotune:
-        target_entropy = -torch.prod(
-            torch.Tensor(envs.single_action_space.shape).to(device)
-        ).item()
+        # Original paper suggests target_entropy = -dim(A)
+        # However increasing target entropy (coeff=0.1) can apparently help
+        target_entropy = (
+            -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
+            * cfg.train.targ_ent_coeff
+        )
         log_ent_coeff = torch.zeros(1, requires_grad=True, device=device)
         ent_coeff = log_ent_coeff.exp().item()
         ent_coeff_optimizer = optim.Adam([log_ent_coeff], lr=cfg.train.q_lr)
     else:
-        ent_coeff = cfg.train.ent_coef
+        ent_coeff = cfg.train.ent_coeff
 
-    # Not sure why this is in the cleanrl code
-    # including it causes warnings (gym output is np.float64)
+    # Not sure why this is in the cleanrl code:
     # envs.single_observation_space.dtype = np.float32
+    # including it causes warnings (gym output is np.float64)
 
     # Create replay buffer
     replay_buffer = ReplayBuffer(
@@ -180,10 +183,10 @@ def main(cfg: SACSafetyConfig) -> None:
     # Track how many times the goal was achieved each episode
     goal_achieved_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
 
-    # Shaped episodic return
+    # Record shaped episodic return
     shaped_episodic_return = np.array([0.0] * cfg.train_common.num_envs, dtype=float)
 
-    # Start training
+    # Initialize envs
     start_time = time.time()
     obs = torch.Tensor(
         envs.reset(
@@ -192,6 +195,8 @@ def main(cfg: SACSafetyConfig) -> None:
             0  # observations are first element of env reset output
         ]
     ).to(device)
+
+    # Start training
     for global_step in tqdm(range(cfg.train_common.total_timesteps)):
         # ALGO LOGIC: action logic
         with torch.no_grad():
@@ -219,8 +224,10 @@ def main(cfg: SACSafetyConfig) -> None:
             constraint_violated_latch, constraint_violated
         )
 
-        # Learn safety
-        # TODO: improve safety learning
+        ################################################################################
+
+        # Shape reward to learn safety
+
         if cfg.safety_common.learn_safety:
             # TODO: intrinsic reward from RND to encourage exploration
             # dense reward (Euclidean distance)
@@ -252,6 +259,8 @@ def main(cfg: SACSafetyConfig) -> None:
                     # TODO: maybe change to penalize being in the same state as the previous time step?
                     rew[env_idx] -= cfg.safety_common.inactivity_penalty_coeff
 
+        ################################################################################
+
         shaped_episodic_return += rew
 
         # Record episodic returns for plotting
@@ -274,28 +283,35 @@ def main(cfg: SACSafetyConfig) -> None:
                         item["episode"]["l"],
                         global_step=global_step,
                     )
-            writer.add_scalar(
-                "charts/goal_achieved", goal_achieved_latch[0], global_step=global_step
-            )
-            writer.add_scalar(
-                "charts/constraint_violated",
-                constraint_violated_latch[0],
-                global_step=global_step,
-            )
-            writer.add_scalar(
-                "charts/task_success",
-                goal_achieved_latch[0] & (not constraint_violated_latch[0]),
-                global_step=global_step,
-            )
-            writer.add_scalar(
-                "charts/goal_achieved_count",
-                goal_achieved_count[0],
-                global_step=global_step,
-            )
 
-        # Reset latches and shaped episodic return if at end of episode
         for i, d in enumerate(done):
             if d:
+                writer.add_scalar(
+                    "charts/goal_achieved",
+                    goal_achieved_latch[i],
+                    global_step=global_step,
+                )
+                writer.add_scalar(
+                    "charts/constraint_violated",
+                    constraint_violated_latch[i],
+                    global_step=global_step,
+                )
+                writer.add_scalar(
+                    "charts/task_success",
+                    goal_achieved_latch[i] & (not constraint_violated_latch[i]),
+                    global_step=global_step,
+                )
+                writer.add_scalar(
+                    "charts/goal_achieved_count",
+                    goal_achieved_count[i],
+                    global_step=global_step,
+                )
+                writer.add_scalar(
+                    "charts/episode_count_per_env",
+                    episode_count[i],
+                    global_step=global_step,
+                )
+                # Reset latches and shaped episodic return if at end of episode
                 goal_achieved_latch[i] = False
                 constraint_violated_latch[i] = False
                 goal_achieved_count[i] = 0
@@ -318,11 +334,6 @@ def main(cfg: SACSafetyConfig) -> None:
                     policy_name = f"policies/rl-policy-episode-{episode_count[0]}.pt"
                     torch.save(agent.pi.state_dict(), policy_name)
 
-            writer.add_scalar(
-                "charts/episode_count_per_env",
-                episode_count[0],
-                global_step=global_step,
-            )
         # Increment episode counter
         episode_count += done
 
@@ -397,6 +408,13 @@ def main(cfg: SACSafetyConfig) -> None:
                     policy_optimizer.zero_grad()
                     policy_loss.backward()
                     policy_optimizer.step()
+
+                    # Record policy entropy
+                    writer.add_scalar(
+                        "losses/log_pi",
+                        -log_pi.mean().item(),
+                        global_step=global_step,
+                    )
 
                     # Automatic entropy tuning
                     if cfg.train.autotune:

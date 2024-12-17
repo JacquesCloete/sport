@@ -20,11 +20,12 @@ class TrainSACConfig:
     buffer_size: int  # replay buffer size
     batch_size: int  # batch size of samples from replay buffer
     burn_in: int  # burn-in before learning starts
-    ent_coef: float  # entropy regularization coefficient
+    ent_coeff: float  # entropy regularization coefficient
     autotune: bool  # autotune entropy regularization coefficient
     policy_freq: int  # policy update frequency
     targ_net_freq: int  # target network update frequency
     tau: float  # target smoothing polyak coefficient
+    targ_ent_coeff: float  # target entropy (scaling coefficient from default)
 
 
 @dataclass

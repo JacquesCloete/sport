@@ -49,7 +49,7 @@ def make_env(
                 # env = gym.wrappers.TransformReward(
                 #     env, lambda rew: np.clip(rew, -10.0, 10.0)
                 # )  # reward clipping after normalization has no evidence of being helpful
-                # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
+        # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
@@ -106,9 +106,9 @@ def make_env_safety(
                 # env = gym.wrappers.TransformReward(
                 #     env, lambda rew: np.clip(rew, -10.0, 10.0)
                 # )  # reward clipping after normalization has no evidence of being helpful
-                # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
         # wrap back to safety gymnasium
         env = safety_gymnasium.wrappers.Gymnasium2SafetyGymnasium(env)
+        # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
