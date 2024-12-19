@@ -10,4 +10,8 @@ autotune: true
 policy_freq: 2
 targ_net_freq: 1
 tau: 0.005
-targ_ent_coeff: 1.0
+targ_ent_coeff: -1.0
+per: false
+per_alpha: 0.6
+per_beta_start: 0.4
+per_beta_end: 1.0

@@ -26,6 +26,10 @@ class TrainSACConfig:
     targ_net_freq: int  # target network update frequency
     tau: float  # target smoothing polyak coefficient
     targ_ent_coeff: float  # target entropy (scaling coefficient from default)
+    per: bool  # use prioritized experience replay
+    per_alpha: float  # PER alpha parameter
+    per_beta_start: float  # PER beta parameter (start of annealing)
+    per_beta_end: float  # PER beta parameter (end of annealing)
 
 
 @dataclass

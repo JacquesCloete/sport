@@ -6,7 +6,9 @@ from torch.distributions import Normal
 
 
 class ReplayBuffer:
-    """A simple FIFO experience replay buffer for SAC agents."""
+    """
+    A FIFO experience replay buffer for SAC agents, with the option for prioritization.
+    """
 
     def __init__(
         self,
@@ -14,15 +16,21 @@ class ReplayBuffer:
         action_space: Box,
         size: int,
         device: torch.device,
+        prioritized: bool = False,
+        alpha: float = 0.6,
     ) -> None:
         obs_dim = int(np.array(observation_space.shape).prod())
         act_dim = int(np.prod(action_space.shape))
-        self.obs_buf = torch.zeros((size, obs_dim)).to(device)
-        self.obs2_buf = torch.zeros((size, obs_dim)).to(device)
-        self.act_buf = torch.zeros((size, act_dim)).to(device)
-        self.rew_buf = torch.zeros(size).to(device)
-        self.done_buf = torch.zeros(size).to(device)
+        self.obs_buf = torch.zeros((size, obs_dim), requires_grad=False).to(device)
+        self.obs2_buf = torch.zeros((size, obs_dim), requires_grad=False).to(device)
+        self.act_buf = torch.zeros((size, act_dim), requires_grad=False).to(device)
+        self.rew_buf = torch.zeros(size, requires_grad=False).to(device)
+        self.done_buf = torch.zeros(size, requires_grad=False).to(device)
         self.ptr, self.size, self.max_size = 0, 0, size
+        self.prioritized = prioritized
+        if self.prioritized:
+            self.alpha = alpha
+            self.priorities = torch.ones(size, requires_grad=False).to(device)
 
     def store(
         self,
@@ -32,23 +40,51 @@ class ReplayBuffer:
         next_obs: torch.Tensor,
         done: torch.Tensor,
     ) -> None:
+        """Add a transition to the replay buffer."""
         self.obs_buf[self.ptr] = obs
         self.obs2_buf[self.ptr] = next_obs
         self.act_buf[self.ptr] = act
         self.rew_buf[self.ptr] = rew
         self.done_buf[self.ptr] = done
+        if self.prioritized:
+            # New transitions have max probability
+            self.priorities[self.ptr] = torch.max(self.priorities)
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
-    def sample_batch(self, batch_size: int) -> dict[str, torch.Tensor]:
-        idxs = np.random.randint(0, self.size, size=batch_size)
+    def sample_batch(
+        self, batch_size: int, beta: float = 0.4
+    ) -> dict[str, torch.Tensor]:
+        """Sample a batch of transitions."""
+        if self.prioritized:
+            scaled_priorities = self.priorities[: self.size] ** self.alpha
+            sampling_probs = scaled_priorities / torch.sum(scaled_priorities)
+            idxs = torch.multinomial(
+                input=sampling_probs,
+                num_samples=batch_size,
+                replacement=True,
+            )
+            weights = (self.size * sampling_probs[idxs]) ** (-beta)
+            weights = weights / torch.max(weights)  # Normalize for stability
+            weights.requires_grad = False
+        else:
+            idxs = torch.randint(0, self.size, size=(batch_size,))
+            weights = torch.ones(self.size, requires_grad=False)
         return dict(
             obs=self.obs_buf[idxs],
             obs2=self.obs2_buf[idxs],
             act=self.act_buf[idxs],
             rew=self.rew_buf[idxs],
             done=self.done_buf[idxs],
+            idx=idxs,
+            wgt=weights,
         )
+
+    def update_priorities(self, idxs: torch.Tensor, td_errors: torch.Tensor) -> None:
+        """Update priorities based on TD errors."""
+        self.priorities[idxs] = (
+            torch.abs(td_errors) + 1e-6
+        )  # add small epsilon for stability
 
 
 def mlp(

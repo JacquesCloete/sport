@@ -148,9 +148,18 @@ def main(cfg: SACConfig) -> None:
     # Automatic entropy tuning
     if cfg.train.autotune:
         # Original paper suggests target_entropy = -dim(A)
-        # However increasing target entropy (coeff=0.1) can apparently help
+        # It makes sense to have target entropy be propertional to dim(A);
+        # if they instead chose it at some fixed constant, then problems with larger
+        # action dimensionalities would have to spread the same budget of randomness
+        # over the different action dimensionalities. For very large action spaces this
+        # might result in effectively deterministic behaviour.
+        # Note that total entropy is the sum of entropies of each action dimension.
+        # So -dim(A) (i.e. targ_ent_coeff=-1) basically gives -1 entropy per action (but
+        # the agent can distribute the total however it wants between the actions).
+        # Going more positive than -1 will increase the total entropy budget and thus
+        # force more exploration.
         target_entropy = (
-            -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
+            torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
             * cfg.train.targ_ent_coeff
         )
         log_ent_coeff = torch.zeros(1, requires_grad=True, device=device)

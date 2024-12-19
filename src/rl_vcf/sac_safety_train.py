@@ -149,9 +149,18 @@ def main(cfg: SACSafetyConfig) -> None:
     # Automatic entropy tuning
     if cfg.train.autotune:
         # Original paper suggests target_entropy = -dim(A)
-        # However increasing target entropy (coeff=0.1) can apparently help
+        # It makes sense to have target entropy be propertional to dim(A);
+        # if they instead chose it at some fixed constant, then problems with larger
+        # action dimensionalities would have to spread the same budget of randomness
+        # over the different action dimensionalities. For very large action spaces this
+        # might result in effectively deterministic behaviour.
+        # Note that total entropy is the sum of entropies of each action dimension.
+        # So -dim(A) (i.e. targ_ent_coeff=-1) basically gives -1 entropy per action (but
+        # the agent can distribute the total however it wants between the actions).
+        # Going more positive than -1 will increase the total entropy budget and thus
+        # force more exploration.
         target_entropy = (
-            -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
+            torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
             * cfg.train.targ_ent_coeff
         )
         log_ent_coeff = torch.zeros(1, requires_grad=True, device=device)
@@ -166,10 +175,12 @@ def main(cfg: SACSafetyConfig) -> None:
 
     # Create replay buffer
     replay_buffer = ReplayBuffer(
-        envs.single_observation_space,
-        envs.single_action_space,
-        cfg.train.buffer_size,
-        device,
+        observation_space=envs.single_observation_space,
+        action_space=envs.single_action_space,
+        size=cfg.train.buffer_size,
+        device=device,
+        prioritized=cfg.train.per,
+        alpha=cfg.train.per_alpha,
     )
 
     # Track whether the goal was achieved and whether a constraint was violated each episode
@@ -338,9 +349,10 @@ def main(cfg: SACSafetyConfig) -> None:
         episode_count += done
 
         # Handle "final_observation"
-        # Note that for vectorized environments, each environment auto-resets when done
-        # So when we step, we actually see the initial observation of the next episode
-        # So if we want the final observation of the previous episode, we look in info
+        # Note that for vectorized environments, each environment auto-resets when done.
+        # So when we step, we actually see the initial observation of the next episode.
+        # So if we want the final observation of the previous episode, we look in info.
+        # We don't do this for termination since we don't need the next obs then.
         real_next_obs = next_obs.copy()
         for idx, truncated in enumerate(trunc):
             if truncated:
@@ -360,8 +372,28 @@ def main(cfg: SACSafetyConfig) -> None:
 
         # ALGO LOGIC: training
         if global_step > cfg.train.burn_in:
+
+            # Sample batch
+            if cfg.train.per:
+                # Linearly interpolate beta from start to end value
+                current_per_beta = (
+                    cfg.train.per_beta_start
+                    + (cfg.train.per_beta_end - cfg.train.per_beta_start)
+                    * global_step
+                    / cfg.train_common.total_timesteps
+                )
+                data = replay_buffer.sample_batch(
+                    cfg.train.batch_size, current_per_beta
+                )
+                writer.add_scalar(
+                    "losses/per_beta",
+                    current_per_beta,
+                    global_step=global_step,
+                )
+            else:
+                data = replay_buffer.sample_batch(cfg.train.batch_size)
+
             # Q networks update
-            data = replay_buffer.sample_batch(cfg.train.batch_size)
             with torch.no_grad():
                 next_pi, next_log_pi = agent.pi.forward(data["obs2"])
                 q1_value_next_targ = agent_targ.q1.forward(data["obs2"], next_pi)
@@ -379,8 +411,20 @@ def main(cfg: SACSafetyConfig) -> None:
             q1_value = agent.q1.forward(data["obs"], data["act"]).view(-1)
             q2_value = agent.q2.forward(data["obs"], data["act"]).view(-1)
             # Q network loss functions
-            q1_loss = torch.nn.functional.mse_loss(q1_value, q_value_targ)
-            q2_loss = torch.nn.functional.mse_loss(q2_value, q_value_targ)
+            if cfg.train.per:
+                # TD errors for prioritized replay buffer
+                td_error_q1 = q_value_targ - q1_value
+                td_error_q2 = q_value_targ - q2_value
+                # Update priorities in replay buffer
+                replay_buffer.update_priorities(data["idx"], td_error_q1.detach())
+                # Weighted MSE loss to compensate for bias from prioritization
+                q1_loss = (td_error_q1**2 * data["wgt"]).mean()
+                q2_loss = (td_error_q2**2 * data["wgt"]).mean()
+            else:
+                # Q network loss functions
+                q1_loss = torch.nn.functional.mse_loss(q1_value, q_value_targ)
+                q2_loss = torch.nn.functional.mse_loss(q2_value, q_value_targ)
+
             q_loss = q1_loss + q2_loss
 
             # Update Q networks
@@ -411,7 +455,7 @@ def main(cfg: SACSafetyConfig) -> None:
 
                     # Record policy entropy
                     writer.add_scalar(
-                        "losses/log_pi",
+                        "losses/approx_ent",
                         -log_pi.mean().item(),
                         global_step=global_step,
                     )
