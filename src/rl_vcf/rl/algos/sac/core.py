@@ -87,6 +87,40 @@ class ReplayBuffer:
         )  # add small epsilon for stability
 
 
+class TaskSuccessBuffer:
+    """
+    A FIFO buffer to record task success during training.
+    Used for curriculum learning.
+    """
+
+    def __init__(
+        self,
+        size: int,
+    ) -> None:
+        self.buf = np.full(size, False, dtype=bool)
+        self.max_size = size
+        self.reset()
+
+    def store(
+        self,
+        data: bool,
+    ) -> None:
+        """Add new data to the replay buffer."""
+        self.buf[self.ptr] = data
+        self.ptr = (self.ptr + 1) % self.max_size
+        self.size = min(self.size + 1, self.max_size)
+
+    def get_success_rate(self) -> float:
+        """Get the empirical task success rate."""
+        assert self.size > 0, "Task success buffer is empty."
+        return np.sum(self.buf) / self.size
+
+    def reset(self) -> None:
+        """Reset the buffer."""
+        self.buf = np.full(self.max_size, False, dtype=bool)
+        self.ptr, self.size = 0, 0
+
+
 def mlp(
     sizes: tuple[int],
     activation: nn.Module,

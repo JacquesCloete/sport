@@ -17,6 +17,7 @@ def make_env(
     capture_video: bool = False,
     video_episode_interval: int = 100,
     preprocess_envs: bool = False,
+    video_dir: str = "",
 ) -> gym.Env:
     """Create the environment."""
 
@@ -30,7 +31,7 @@ def make_env(
             if idx == 0:  # record only the environment with idx 0
                 env = gym.wrappers.RecordVideo(
                     env,
-                    "videos",
+                    "videos" + video_dir,
                     episode_trigger=lambda t: t % video_episode_interval == 0,
                 )
         # Preprocessing for continuous action spaces
@@ -64,6 +65,7 @@ def make_env_safety(
     capture_video: bool = False,
     video_episode_interval: int = 100,
     preprocess_envs: bool = False,
+    video_dir: str = "",
 ) -> gym.Env:
     """Create the environment."""
 
@@ -87,7 +89,7 @@ def make_env_safety(
             if idx == 0:  # record only the environment with idx 0
                 env = gym.wrappers.RecordVideo(
                     env,
-                    "videos",
+                    "videos" + video_dir,
                     episode_trigger=lambda t: t % video_episode_interval == 0,
                 )
         # Preprocessing for continuous action spaces

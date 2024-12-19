@@ -1,4 +1,4 @@
-gym_id: "SafetyPointReachAvoidReset1-v0"
+gym_id: "SafetyPointReachAvoid1-v0"
 seed: 0
 total_timesteps: 1000000
 torch_deterministic: true

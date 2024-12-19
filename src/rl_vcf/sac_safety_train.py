@@ -20,7 +20,7 @@ from omegaconf import OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from rl_vcf.rl.algos.sac.core import MLPActorCritic, ReplayBuffer
+from rl_vcf.rl.algos.sac.core import MLPActorCritic, ReplayBuffer, TaskSuccessBuffer
 from rl_vcf.rl.algos.sac.dataclasses import SACSafetyConfig
 from rl_vcf.rl.utils import make_env_safety, process_info
 
@@ -86,21 +86,54 @@ def main(cfg: SACSafetyConfig) -> None:
         "cuda" if torch.cuda.is_available() and cfg.train_common.cuda else "cpu"
     )
 
+    assert (
+        cfg.train_common.num_envs == 1
+    ), "Only one env is supported in SAC for now due to replay logic, TODO: support parallel envs"
+
     # Environment setup
     # Note: vectorized envs
-    envs = safety_gymnasium.vector.SafetySyncVectorEnv(
-        [
-            make_env_safety(
-                cfg.train_common.gym_id,
-                i,
-                cfg.train_common.seed + i,
-                cfg.train_common.capture_video,
-                cfg.train_common.capture_video_ep_interval,
-                cfg.train_common.preprocess_envs,
-            )
-            for i in range(cfg.train_common.num_envs)
+    if cfg.train.curriculum:
+        assert len(cfg.train.curriculum_levels) == len(
+            cfg.train.curriculum_thresholds
+        ), "No. curriculum levels and thresholds must match"
+        env_name, version = cfg.train_common.gym_id.split("-")
+        assert (
+            "Curriculum" in env_name
+        ), "gym_id must have a Curriculum suffix (without a specified level number)"
+        # Use curriculum environments
+        curriculum_gym_ids = [
+            f"{env_name}{str(level)}-{version}" for level in cfg.train.curriculum_levels
         ]
-    )
+        cur_level_idx = 0
+        task_success_buffer = TaskSuccessBuffer(cfg.train.curriculum_window)
+        envs = safety_gymnasium.vector.SafetySyncVectorEnv(
+            [
+                make_env_safety(
+                    curriculum_gym_ids[cur_level_idx],
+                    i,
+                    cfg.train_common.seed + i,
+                    cfg.train_common.capture_video,
+                    cfg.train_common.capture_video_ep_interval,
+                    cfg.train_common.preprocess_envs,
+                    video_dir=f"/level_{str(cfg.train.curriculum_levels[cur_level_idx])}",
+                )
+                for i in range(cfg.train_common.num_envs)
+            ]
+        )
+    else:
+        envs = safety_gymnasium.vector.SafetySyncVectorEnv(
+            [
+                make_env_safety(
+                    cfg.train_common.gym_id,
+                    i,
+                    cfg.train_common.seed + i,
+                    cfg.train_common.capture_video,
+                    cfg.train_common.capture_video_ep_interval,
+                    cfg.train_common.preprocess_envs,
+                )
+                for i in range(cfg.train_common.num_envs)
+            ]
+        )
     assert isinstance(
         envs.single_action_space, Box
     ), "only continuous action space is supported"
@@ -322,6 +355,10 @@ def main(cfg: SACSafetyConfig) -> None:
                     episode_count[i],
                     global_step=global_step,
                 )
+                # Record task success in buffer
+                task_success_buffer.store(
+                    goal_achieved_latch[i] & (not constraint_violated_latch[i])
+                )
                 # Reset latches and shaped episodic return if at end of episode
                 goal_achieved_latch[i] = False
                 constraint_violated_latch[i] = False
@@ -332,6 +369,12 @@ def main(cfg: SACSafetyConfig) -> None:
                     global_step=global_step,
                 )
                 shaped_episodic_return[i] = 0.0
+        if cfg.train.curriculum and np.any(done):
+            writer.add_scalar(
+                "charts/task_success_rate",
+                task_success_buffer.get_success_rate(),
+                global_step=global_step,
+            )
 
         if done[0]:
             if cfg.train_common.save_model:
@@ -369,6 +412,46 @@ def main(cfg: SACSafetyConfig) -> None:
 
         # Update obs (critical!)
         obs = torch.Tensor(next_obs).to(device)
+
+        if cfg.train.curriculum and (
+            task_success_buffer.size == task_success_buffer.max_size
+        ):
+            if (
+                task_success_buffer.get_success_rate()
+                >= cfg.train.curriculum_thresholds[cur_level_idx]
+            ):
+                # If completed the final curriculum level, stop training
+                if cur_level_idx == len(cfg.train.curriculum_levels) - 1:
+                    break
+
+                # Move to next curriculum level
+                cur_level_idx += 1
+                task_success_buffer.reset()
+                envs = safety_gymnasium.vector.SafetySyncVectorEnv(
+                    [
+                        make_env_safety(
+                            curriculum_gym_ids[cur_level_idx],
+                            i,
+                            cfg.train_common.seed + i,
+                            cfg.train_common.capture_video,
+                            cfg.train_common.capture_video_ep_interval,
+                            cfg.train_common.preprocess_envs,
+                            video_dir=f"/level_{str(cfg.train.curriculum_levels[cur_level_idx])}",
+                        )
+                        for i in range(cfg.train_common.num_envs)
+                    ]
+                )
+                obs = torch.Tensor(
+                    envs.reset(
+                        seed=[
+                            cfg.train_common.seed + i
+                            for i in range(cfg.train_common.num_envs)
+                        ]
+                    )[
+                        0  # observations are first element of env reset output
+                    ]
+                ).to(device)
+                episode_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
 
         # ALGO LOGIC: training
         if global_step > cfg.train.burn_in:

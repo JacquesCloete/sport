@@ -30,6 +30,10 @@ class TrainSACConfig:
     per_alpha: float  # PER alpha parameter
     per_beta_start: float  # PER beta parameter (start of annealing)
     per_beta_end: float  # PER beta parameter (end of annealing)
+    curriculum: bool  # use curriculum learning
+    curriculum_levels: list[int]  # curriculum levels
+    curriculum_thresholds: list[float]  # curriculum success rate thresholds
+    curriculum_window: int  # curriculum success rate checking window size
 
 
 @dataclass

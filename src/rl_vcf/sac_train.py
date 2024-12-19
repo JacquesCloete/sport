@@ -85,6 +85,10 @@ def main(cfg: SACConfig) -> None:
         "cuda" if torch.cuda.is_available() and cfg.train_common.cuda else "cpu"
     )
 
+    assert (
+        cfg.train_common.num_envs == 1
+    ), "Only one env is supported in SAC for now due to replay logic, TODO: support parallel envs"
+
     # Environment setup
     # Note: vectorized envs
     envs = gym.vector.SyncVectorEnv(
@@ -178,6 +182,8 @@ def main(cfg: SACConfig) -> None:
         envs.single_action_space,
         cfg.train.buffer_size,
         device,
+        prioritized=cfg.train.per,
+        alpha=cfg.train.per_alpha,
     )
 
     # Initialize envs
@@ -273,6 +279,27 @@ def main(cfg: SACConfig) -> None:
 
         # ALGO LOGIC: training
         if global_step > cfg.train.burn_in:
+
+            # Sample batch
+            if cfg.train.per:
+                # Linearly interpolate beta from start to end value
+                current_per_beta = (
+                    cfg.train.per_beta_start
+                    + (cfg.train.per_beta_end - cfg.train.per_beta_start)
+                    * global_step
+                    / cfg.train_common.total_timesteps
+                )
+                data = replay_buffer.sample_batch(
+                    cfg.train.batch_size, current_per_beta
+                )
+                writer.add_scalar(
+                    "losses/per_beta",
+                    current_per_beta,
+                    global_step=global_step,
+                )
+            else:
+                data = replay_buffer.sample_batch(cfg.train.batch_size)
+
             # Q networks update
             data = replay_buffer.sample_batch(cfg.train.batch_size)
             with torch.no_grad():
@@ -292,8 +319,20 @@ def main(cfg: SACConfig) -> None:
             q1_value = agent.q1.forward(data["obs"], data["act"]).view(-1)
             q2_value = agent.q2.forward(data["obs"], data["act"]).view(-1)
             # Q network loss functions
-            q1_loss = torch.nn.functional.mse_loss(q1_value, q_value_targ)
-            q2_loss = torch.nn.functional.mse_loss(q2_value, q_value_targ)
+            if cfg.train.per:
+                # TD errors for prioritized replay buffer
+                td_error_q1 = q_value_targ - q1_value
+                td_error_q2 = q_value_targ - q2_value
+                # Update priorities in replay buffer
+                replay_buffer.update_priorities(data["idx"], td_error_q1.detach())
+                # Weighted MSE loss to compensate for bias from prioritization
+                q1_loss = (td_error_q1**2 * data["wgt"]).mean()
+                q2_loss = (td_error_q2**2 * data["wgt"]).mean()
+            else:
+                # Q network loss functions
+                q1_loss = torch.nn.functional.mse_loss(q1_value, q_value_targ)
+                q2_loss = torch.nn.functional.mse_loss(q2_value, q_value_targ)
+
             q_loss = q1_loss + q2_loss
 
             # Update Q networks
