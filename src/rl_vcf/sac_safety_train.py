@@ -90,6 +90,9 @@ def main(cfg: SACSafetyConfig) -> None:
         cfg.train_common.num_envs == 1
     ), "Only one env is supported in SAC for now due to replay logic, TODO: support parallel envs"
 
+    # Instantiate task success buffer
+    task_success_buffer = TaskSuccessBuffer(cfg.train.curriculum_window)
+
     # Environment setup
     # Note: vectorized envs
     if cfg.train.curriculum:
@@ -100,12 +103,15 @@ def main(cfg: SACSafetyConfig) -> None:
         assert (
             "Curriculum" in env_name
         ), "gym_id must have a Curriculum suffix (without a specified level number)"
+        while env_name[-1].isnumeric():
+            # Remove level number from env_name, if present
+            # While-loop to handle multi-digit level numbers
+            env_name = env_name[:-1]
         # Use curriculum environments
         curriculum_gym_ids = [
             f"{env_name}{str(level)}-{version}" for level in cfg.train.curriculum_levels
         ]
         cur_level_idx = 0
-        task_success_buffer = TaskSuccessBuffer(cfg.train.curriculum_window)
         envs = safety_gymnasium.vector.SafetySyncVectorEnv(
             [
                 make_env_safety(
@@ -363,6 +369,11 @@ def main(cfg: SACSafetyConfig) -> None:
                 task_success_buffer.store(
                     goal_achieved_latch[i] & (not constraint_violated_latch[i])
                 )
+                writer.add_scalar(
+                    "charts/task_success_rate",
+                    task_success_buffer.get_success_rate(),
+                    global_step=global_step,
+                )
                 # Reset latches and shaped episodic return if at end of episode
                 goal_achieved_latch[i] = False
                 constraint_violated_latch[i] = False
@@ -373,12 +384,6 @@ def main(cfg: SACSafetyConfig) -> None:
                     global_step=global_step,
                 )
                 shaped_episodic_return[i] = 0.0
-        if cfg.train.curriculum and np.any(done):
-            writer.add_scalar(
-                "charts/task_success_rate",
-                task_success_buffer.get_success_rate(),
-                global_step=global_step,
-            )
 
         if done[0]:
             if cfg.train_common.save_model:
