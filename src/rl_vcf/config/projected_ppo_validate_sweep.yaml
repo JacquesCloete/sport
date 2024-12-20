@@ -1,0 +1,16 @@
+program: projected_ppo_validate.py
+name: projected_ppo_validate_sweep
+method: grid
+parameters:
+  alpha:
+    values: [1.0, 1.02, 1.1, 1.5, 10.0, 100.0, 1000.0, 10000.0]
+  validate_common.gym_id:
+    value: "SafetyPointReachAvoidCurriculum5-v0"
+  wandb.group:
+    value: "projected_ppo_validate_sweep"
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}

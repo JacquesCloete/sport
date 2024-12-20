@@ -21,3 +21,4 @@ class ValidateCommonConfig:
     policy_path: str  # relative path to policy to validate
     load_db: bool  # load existing scenario database
     load_db_path: str  # relative path to existing scenario database
+    control_rng: bool  # control rng for reproducibility

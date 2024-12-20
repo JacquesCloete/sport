@@ -626,6 +626,14 @@ def main(cfg: SACSafetyConfig) -> None:
                         global_step=global_step,
                     )
 
+    if cfg.train_common.save_model:
+        # Save trained model
+        model_name = "models/rl-model-final.pt"
+        torch.save(agent.state_dict(), model_name)
+        # Save trained policy separately as well
+        policy_name = "policies/rl-policy-final.pt"
+        torch.save(agent.pi.state_dict(), policy_name)
+
     # Close envs
     envs.close()
 

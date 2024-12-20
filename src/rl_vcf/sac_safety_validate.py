@@ -68,10 +68,14 @@ def main(cfg: SACValidateConfig) -> None:
     # Set up tensorboard summary writer
     writer = SummaryWriter("log")
 
+    if cfg.validate_common.control_rng:
+        assert cfg.validate_common.num_envs == 1, "Controlled RNG requires num_envs=1"
+    seed = cfg.validate_common.seed
+
     # Seeding
-    random.seed(cfg.validate_common.seed)
-    np.random.seed(cfg.validate_common.seed)
-    torch.manual_seed(cfg.validate_common.seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     torch.backends.cudnn.deterministic = cfg.validate_common.torch_deterministic
 
     device = torch.device(
@@ -85,7 +89,7 @@ def main(cfg: SACValidateConfig) -> None:
             make_env_safety(
                 cfg.validate_common.gym_id,
                 i,
-                cfg.validate_common.seed + i,
+                seed + i,
                 cfg.validate_common.capture_video,
                 cfg.validate_common.capture_video_ep_interval,
                 cfg.validate_common.clip_action,
@@ -167,9 +171,7 @@ def main(cfg: SACValidateConfig) -> None:
 
     # Initialize validation loop
     global_step = 0
-    obs, info = envs.reset(
-        seed=[cfg.validate_common.seed + i for i in range(scenario_db.num_envs)]
-    )
+    obs, info = envs.reset(seed=[seed + i for i in range(scenario_db.num_envs)])
     done = np.full(scenario_db.num_envs, False, dtype=bool)
     goal_achieved = np.full(scenario_db.num_envs, False, dtype=bool)
     constraint_violated = np.full(scenario_db.num_envs, False, dtype=bool)
@@ -224,6 +226,21 @@ def main(cfg: SACValidateConfig) -> None:
                     save_scenario_database(scenario_db, "base_policy_db.pkl")
 
             pbar.update(max_num_scenarios_complete)
+
+            if cfg.validate_common.control_rng:
+                # Reset RNG
+                if np.any(done):
+                    # Increment seed
+                    seed += 1
+                    random.seed(seed)
+                    np.random.seed(seed)
+                    torch.manual_seed(seed)
+                    envs.action_space.seed(seed)
+                    envs.observation_space.seed(seed)
+                    # Reset environments
+                    obs, info = envs.reset(
+                        seed=[seed + i for i in range(scenario_db.num_envs)]
+                    )
 
     # Close progress bar
     pbar.close()

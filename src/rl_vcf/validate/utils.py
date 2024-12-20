@@ -27,6 +27,7 @@ class ScenarioDatabase:
         self.scenario_data = np.full(
             (self.max_num_scenarios, self.max_episode_length + 1), False, dtype=bool
         )
+        self.times_taken = np.zeros(self.max_num_scenarios, dtype=int)
         self.active_scenarios = np.arange(self.num_envs, dtype=int)
         self.num_collected_scenarios = 0
         self.timesteps = np.zeros(self.num_envs, dtype=int)
@@ -55,6 +56,10 @@ class ScenarioDatabase:
                 if self.active_scenarios[p_idx] < self.max_num_scenarios:
                     # If the task is done:
                     if done[p_idx]:
+                        # Record time taken for scenario
+                        self.times_taken[self.active_scenarios[p_idx]] = self.timesteps[
+                            p_idx
+                        ]
                         # If the task is done because the goal was achieved, mark the task as successful
                         if goal_achieved[p_idx]:
                             # On scenario task success, mask current and future time steps as task success
@@ -218,6 +223,16 @@ class ScenarioDatabase:
         )
         ax.title.set_text(title_str)
         return fig, ax
+
+    def get_successful_times_taken(self) -> NDArray:
+        """Get the number of timesteps taken for each successful scenario."""
+        return self.times_taken[
+            np.sum(self.scenario_data[: self.num_collected_scenarios], axis=1) > 0
+        ]
+
+    def get_mean_successful_time_taken(self) -> float:
+        """Get the mean number of timesteps taken for successful scenarios."""
+        return np.mean(self.get_successful_times_taken())
 
 
 def save_scenario_database(db: ScenarioDatabase, filename: str) -> None:
