@@ -88,7 +88,9 @@ def main(cfg: SACValidateConfig) -> None:
                 cfg.validate_common.seed + i,
                 cfg.validate_common.capture_video,
                 cfg.validate_common.capture_video_ep_interval,
-                cfg.validate_common.preprocess_envs,
+                cfg.validate_common.clip_action,
+                cfg.validate_common.normalize_observation,
+                cfg.validate_common.normalize_reward,
             )
             for i in range(cfg.validate_common.num_envs)
         ]

@@ -92,7 +92,9 @@ def main(cfg: PPOConfig) -> None:
                 cfg.train_common.seed + i,
                 cfg.train_common.capture_video,
                 cfg.train_common.capture_video_ep_interval,
-                cfg.train_common.preprocess_envs,
+                cfg.train_common.clip_action,
+                cfg.train_common.normalize_observation,
+                cfg.train_common.normalize_reward,
             )
             for i in range(cfg.train_common.num_envs)
         ]

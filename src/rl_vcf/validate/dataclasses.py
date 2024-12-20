@@ -13,7 +13,9 @@ class ValidateCommonConfig:
     capture_video: bool  # capture videos of agent over an episode
     capture_video_ep_interval: int  # video capture episode interval
     num_envs: int  # no. parallel environments
-    preprocess_envs: bool  # preprocess envs for continuous action spaces
+    clip_action: bool  # clip actions for continuous action spaces
+    normalize_observation: bool  # normalize observations for continuous action spaces
+    normalize_reward: bool  # normalize rewards for continuous action spaces
     save_db: bool  # save scenario database
     save_db_ep_interval: int  # save scenario database episode interval
     policy_path: str  # relative path to policy to validate

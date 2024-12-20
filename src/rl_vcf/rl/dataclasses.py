@@ -27,7 +27,9 @@ class TrainCommonConfig:
     capture_video: bool  # capture videos of agent over an episode
     capture_video_ep_interval: int  # video capture episode interval
     num_envs: int  # no. parallel environments
-    preprocess_envs: bool  # preprocess envs for continuous action spaces
+    clip_action: bool  # clip actions for continuous action spaces
+    normalize_observation: bool  # normalize observations for continuous action spaces
+    normalize_reward: bool  # normalize rewards for continuous action spaces
     save_model: bool  # save model weights
     save_model_ep_interval: int  # save model weights episode interval
 

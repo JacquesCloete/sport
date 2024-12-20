@@ -121,22 +121,44 @@ class TaskSuccessBuffer:
         self.ptr, self.size = 0, 0
 
 
+def layer_init(
+    layer: nn.Linear, weight_init: str = "kaiming_uniform", bias_const: float = 0.0
+) -> nn.Linear:
+    """Initialize layer weights."""
+    if weight_init == "kaiming_uniform":
+        torch.nn.init.kaiming_uniform_(
+            layer.weight, nonlinearity="relu"
+        )  # kaiming uniform best for ReLU
+    elif weight_init == "uniform":
+        torch.nn.init.uniform_(layer.weight, -3e-3, 3e-3)
+        # optional uniform init for the last layer (from DDPG paper)
+    else:
+        raise ValueError(
+            "Unknown weight initialization; use 'kaiming_uniform' or 'uniform'"
+        )
+    torch.nn.init.constant_(layer.bias, bias_const)  # start with 0 bias
+    return layer
+
+
 def mlp(
     sizes: tuple[int],
     activation: nn.Module,
     output_activation: nn.Module = nn.Identity(),
+    output_weight_init: str = "kaiming_uniform",
 ) -> nn.Sequential:
     """Create a multi-layer perceptron."""
     layers = []
     for j in range(len(sizes) - 1):
         if j < len(sizes) - 2:
             layers += [
-                nn.Linear(sizes[j], sizes[j + 1]),
+                layer_init(nn.Linear(sizes[j], sizes[j + 1])),
                 activation,
             ]
         else:
             layers += [
-                nn.Linear(sizes[j], sizes[j + 1]),
+                layer_init(
+                    nn.Linear(sizes[j], sizes[j + 1]), weight_init=output_weight_init
+                ),
                 output_activation,
             ]
     return nn.Sequential(*layers)
@@ -160,8 +182,12 @@ class MLPSquashedGaussianActor(nn.Module):
     ) -> None:
         super().__init__()
         self.net = mlp([obs_dim] + list(hidden_sizes), activation, activation)
-        self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
+        self.mu_layer = layer_init(
+            nn.Linear(hidden_sizes[-1], act_dim), weight_init="uniform"
+        )
+        self.log_std_layer = layer_init(
+            nn.Linear(hidden_sizes[-1], act_dim), weight_init="uniform"
+        )
         self.register_buffer("act_scale", act_scale)
         self.register_buffer("act_bias", act_bias)
         # Save activation function as a string in the register buffer
@@ -222,6 +248,7 @@ class MLPCritic(nn.Module):
         self.net = mlp(
             [obs_dim + act_dim] + list(hidden_sizes) + [1],
             activation,
+            output_weight_init="uniform",
         )
 
     def forward(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:

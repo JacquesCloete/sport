@@ -6,7 +6,9 @@ cuda: true
 capture_video: false
 capture_video_ep_interval: 250
 num_envs: 8
-preprocess_envs: false
+clip_action: false
+normalize_observation: false
+normalize_reward: false
 save_db: true
 save_db_ep_interval: 100
 policy_path: "policies/base_policy.pt"

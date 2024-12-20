@@ -6,6 +6,8 @@ cuda: true
 capture_video: true
 capture_video_ep_interval: 100
 num_envs: 1
-preprocess_envs: true
+clip_action: true
+normalize_observation: true
+normalize_reward: true
 save_model: true
 save_model_ep_interval: 100
