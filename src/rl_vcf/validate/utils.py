@@ -97,6 +97,10 @@ class ScenarioDatabase:
             axis=0
         )
 
+    def get_failure_rate(self) -> NDArray:
+        """Get the failure rate in the scenario database by each timestep."""
+        return self.get_num_failures() / self.num_collected_scenarios
+
     def get_selected_epsilons(
         self,
         t_steps: Container[int],
@@ -233,6 +237,66 @@ class ScenarioDatabase:
     def get_mean_successful_time_taken(self) -> float:
         """Get the mean number of timesteps taken for successful scenarios."""
         return np.mean(self.get_successful_times_taken())
+
+    def get_std_successful_time_taken(self) -> float:
+        """Get the standard deviation of the number of timesteps taken for successful scenarios."""
+        return np.std(self.get_successful_times_taken())
+
+    def plot_max_log_alpha(
+        self,
+        bounds: Container[float],
+        conf: float = 0.9999999,
+    ) -> tuple[Figure, Axes, dict[float, tuple[int, float]]]:
+        """
+        Plot the maximum permitted log-alpha over all possible maximum episode lengths T for each specified failure bound.
+
+        Also returns the locations of the peaks for each bound (i.e. the T/log-alpha pair that permits the largest alpha for the bound).
+        """
+        fig, ax = plt.subplots(figsize=(10, 5))
+        peaks = {}
+        for bound in bounds:
+            log_alpha_array = np.maximum(
+                (np.log(bound) - np.log(self.get_all_epsilons(conf=conf)[1:]))
+                / np.arange(1, self.max_episode_length + 1),
+                0.0,
+            )  # alpha >= 1.0 required
+            label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}, \beta={b:.1E}$".format(
+                b=1 - conf, bound=bound
+            )
+            ax.plot(
+                np.arange(1, self.max_episode_length + 1),
+                log_alpha_array,
+                label=label,
+            )
+
+            peaks[bound] = (np.argmax(log_alpha_array) + 1, np.max(log_alpha_array))
+
+        ax.set_xlim([1, self.max_episode_length + 1])
+        ax.set_ylim(bottom=0.0)
+        ax.set_xlabel("Maximum Episode Length T (time steps)")
+        ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
+        ax.grid(which="major")
+        ax.grid(which="minor", linestyle="--", alpha=0.5)
+        ax.legend(loc="upper right")
+
+        return fig, ax, peaks
+
+    def get_optimal_max_episode_length(
+        self,
+        bound: float,
+        conf: float = 0.9999999,
+    ) -> tuple[int, float]:
+        """
+        Get the optimal maximum episode length T for a given bound, as well as the maximum permitted alpha for that bound.
+        """
+        log_alpha_array = np.maximum(
+            (np.log(bound) - np.log(self.get_all_epsilons(conf=conf)[1:]))
+            / np.arange(1, self.max_episode_length + 1),
+            0.0,
+        )  # alpha >= 1.0 required
+        T = np.argmax(log_alpha_array) + 1
+        log_alpha = np.max(log_alpha_array)
+        return T, np.exp(log_alpha)
 
 
 def save_scenario_database(db: ScenarioDatabase, filename: str) -> None:
@@ -413,3 +477,179 @@ def estimate_epsilon_parallel(
         ]
         results = [future.result() for future in futures]
     return results
+
+
+def add_plotting_data_to_dicts(
+    scenario_db: ScenarioDatabase,
+    alpha: float,
+    T: int,
+    mean_successful_time_taken: dict[float, float],
+    std_successful_time_taken: dict[float, float],
+    empirical_failure_rate: dict[float, float],
+    posterior_bound_failure_rate: dict[float, float],
+    conf: float = 0.9999999,
+) -> None:
+    """
+    Add data to dictionaries for plotting.
+    """
+    all_successful_times_taken = scenario_db.get_successful_times_taken()
+    # Remove successful times taken that are greater than T (since these now correspond to failures)
+    successful_times_taken = all_successful_times_taken[all_successful_times_taken <= T]
+    mean_successful_time_taken[alpha] = np.mean(successful_times_taken)
+    std_successful_time_taken[alpha] = np.std(successful_times_taken)
+    empirical_failure_rate[alpha] = (
+        scenario_db.get_num_failures()[T]
+    ) / scenario_db.num_collected_scenarios
+    posterior_bound_failure_rate[alpha] = scenario_db.get_selected_epsilons(T, conf)
+
+
+def remove_plotting_data_from_dicts(
+    alphas: Container[float],
+    mean_successful_time_taken: dict[float, float],
+    std_successful_time_taken: dict[float, float],
+    empirical_failure_rate: dict[float, float],
+    posterior_bound_failure_rate: dict[float, float],
+) -> None:
+    """
+    Remove data from dictionaries for plotting.
+    """
+    for alpha in alphas:
+        mean_successful_time_taken.pop(alpha, None)
+        std_successful_time_taken.pop(alpha, None)
+        empirical_failure_rate.pop(alpha, None)
+        posterior_bound_failure_rate.pop(alpha, None)
+
+
+def plot_mean_std_time_taken(
+    mean_successful_time_taken: dict[float, float],
+    std_successful_time_taken: dict[float, float],
+) -> tuple[Figure, Axes]:
+    """
+    Plot the mean and standard deviation of episode length for successful scenarios across different alphas.
+    """
+    # Extract alpha values and corresponding means and standard deviations for successful time taken
+    alphas = np.array(list(mean_successful_time_taken.keys()))
+    means = np.array(list(mean_successful_time_taken.values()))
+    stds = np.array(list(std_successful_time_taken.values()))
+
+    # Plot the mean with standard deviations
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(alphas, means, color="blue")
+    ax.fill_between(alphas, means - stds, means + stds, alpha=0.2, color="blue")
+    ax.fill_between(
+        alphas,
+        means - stds,
+        means + stds,
+        alpha=0.5,
+        facecolor="none",
+        edgecolor="blue",
+    )
+    ax.set_xlim([alphas.min(), alphas.max()])
+    ax.set_xlabel(r"$\alpha$")
+    ax.set_ylabel("Mean \xB1 STD Episode Length on Success (time steps)")
+    ax.set_xscale("log")
+    ax.grid(which="major")
+    ax.grid(which="minor", linestyle="--", alpha=0.5)
+    return fig, ax
+
+
+def plot_failure_probs(
+    empirical_failure_rate: dict[float, float],
+    posterior_bound_failure_rate: dict[float, float],
+    T: int,
+    conf: float = 0.9999999,
+) -> tuple[Figure, Axes]:
+    """
+    Plot the empirical failure rate and prior/posterior bound on failure probability across different alphas.
+    """
+    # Extract alpha values and corresponding means and standard deviations for successful time taken
+    alphas = np.array(list(empirical_failure_rate.keys()))
+    failure_rates = np.array(list(empirical_failure_rate.values()))
+    posterior_bounds = np.array(list(posterior_bound_failure_rate.values()))
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    epsilon = posterior_bound_failure_rate[1.0]
+    scen_str = r"Prior Scenario-Based Bound ($\beta={b:.1E}$)".format(b=1 - conf)
+    # alpha_range = np.linspace(alphas.min(), alphas.max(), 1000)
+    alpha_range = np.logspace(np.log10(alphas.min()), np.log10(alphas.max()), 1000)
+    prior_bounds = np.minimum(epsilon * alpha_range**T, 1.0)
+    ax.plot(alpha_range, prior_bounds, color="green", label=scen_str)
+
+    emp_str = r"Empirical Failure Rate ($\frac{{k}}{{N}}$)"
+    ax.plot(alphas, failure_rates, color="blue", label=emp_str)
+
+    scen_str = r"Posterior Scenario-Based Bound ($\beta={b:.1E}$)".format(b=1 - conf)
+    ax.plot(alphas, posterior_bounds, color="red", label=scen_str)
+
+    ax.set_xlim([alphas.min(), alphas.max()])
+    ax.set_ylim([0.0, 1.0])
+    ax.set_xlabel(r"$\alpha$")
+    ax.set_ylabel("Failure Probability")
+    ax.set_xscale("log")
+    ax.grid(which="major")
+    ax.grid(which="minor", linestyle="--", alpha=0.5)
+    ax.legend()
+    return fig, ax
+
+
+def plot_max_log_alpha(
+    scenario_db: ScenarioDatabase,
+    bounds: Container[float],
+    conf: float = 0.9999999,
+) -> tuple[Figure, Axes, dict[float, tuple[int, float]]]:
+    """
+    LEGACY FUNCTION FOR OLD SCENARIO DATABASES -- now a method of ScenarioDatabase
+
+    Plot the maximum permitted log-alpha over all possible maximum episode lengths T for each specified failure bound.
+
+    Also returns the locations of the peaks for each bound (i.e. the T/log-alpha pair that permits the largest alpha for the bound).
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+    peaks = {}
+    for bound in bounds:
+        log_alpha_array = np.maximum(
+            (np.log(bound) - np.log(scenario_db.get_all_epsilons(conf=conf)[1:]))
+            / np.arange(1, scenario_db.max_episode_length + 1),
+            0.0,
+        )  # alpha >= 1.0 required
+        label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}, \beta={b:.1E}$".format(
+            b=1 - conf, bound=bound
+        )
+        ax.plot(
+            np.arange(1, scenario_db.max_episode_length + 1),
+            log_alpha_array,
+            label=label,
+        )
+
+        peaks[bound] = (np.argmax(log_alpha_array) + 1, np.max(log_alpha_array))
+
+    ax.set_xlim([1, scenario_db.max_episode_length + 1])
+    ax.set_ylim(bottom=0.0)
+    ax.set_xlabel("Maximum Episode Length T (time steps)")
+    ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
+    ax.grid(which="major")
+    ax.grid(which="minor", linestyle="--", alpha=0.5)
+    ax.legend(loc="upper right")
+
+    return fig, ax, peaks
+
+
+def get_optimal_max_episode_length(
+    scenario_db: ScenarioDatabase,
+    bound: float,
+    conf: float = 0.9999999,
+) -> tuple[int, float]:
+    """
+    LEGACY FUNCTION FOR OLD SCENARIO DATABASES -- now a method of ScenarioDatabase
+
+    Get the optimal maximum episode length T for a given bound, as well as the maximum permitted alpha for that bound.
+    """
+    log_alpha_array = np.maximum(
+        (np.log(bound) - np.log(scenario_db.get_all_epsilons(conf=conf)[1:]))
+        / np.arange(1, scenario_db.max_episode_length + 1),
+        0.0,
+    )  # alpha >= 1.0 required
+    T = np.argmax(log_alpha_array) + 1
+    log_alpha = np.max(log_alpha_array)
+    return T, np.exp(log_alpha)

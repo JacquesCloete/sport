@@ -84,12 +84,16 @@ def main(cfg: SACValidateConfig) -> None:
 
     # Environment setup
     # Note: vectorized envs
+    if cfg.validate_common.fixed_env:
+        env_seed = cfg.validate_common.env_seed
+    else:
+        env_seed = seed
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [
             make_env_safety(
                 cfg.validate_common.gym_id,
                 i,
-                seed + i,
+                env_seed + i,
                 cfg.validate_common.capture_video,
                 cfg.validate_common.capture_video_ep_interval,
                 cfg.validate_common.clip_action,
@@ -165,6 +169,9 @@ def main(cfg: SACValidateConfig) -> None:
     agent.pi.load_state_dict(loaded_state_dict, strict=True)
     agent.to(device)
 
+    goal_achieved_count = 0
+    constraint_violated_count = 0
+
     # Prevent storing gradients
     for p in agent.parameters():
         p.requires_grad = False
@@ -181,6 +188,18 @@ def main(cfg: SACValidateConfig) -> None:
         scenario_db.num_collected_scenarios,
         global_step=global_step,
     )
+    writer.add_scalar(
+        "charts/goal_achieved_count",
+        goal_achieved_count,
+        global_step=global_step,
+    )
+    writer.add_scalar(
+        "charts/constraint_violated_count",
+        constraint_violated_count,
+        global_step=global_step,
+    )
+
+    time_taken = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Instantiate progress bar
     pbar = tqdm(
@@ -193,6 +212,8 @@ def main(cfg: SACValidateConfig) -> None:
             act = agent.act(torch.Tensor(obs).to(device))
 
             next_obs, _, _, term, trunc, info = envs.step(act.detach().cpu().numpy())
+
+            time_taken += 1
 
             done = np.logical_or(term, trunc)
             goal_achieved, constraint_violated = process_info(info)
@@ -211,6 +232,27 @@ def main(cfg: SACValidateConfig) -> None:
                     scenario_db.num_collected_scenarios,
                     global_step=global_step,
                 )
+                goal_achieved_count += np.sum(goal_achieved)
+                writer.add_scalar(
+                    "charts/goal_achieved_count",
+                    goal_achieved_count,
+                    global_step=global_step,
+                )
+                constraint_violated_count += np.sum(constraint_violated)
+                writer.add_scalar(
+                    "charts/constraint_violated_count",
+                    constraint_violated_count,
+                    global_step=global_step,
+                )
+
+            for i in range(scenario_db.num_envs):
+                if done[i]:
+                    writer.add_scalar(
+                        "charts/time_taken",
+                        time_taken[i],
+                        global_step=global_step,
+                    )
+                    time_taken[i] = 0
 
             max_num_scenarios_complete = sum(
                 previous_active_scenarios != scenario_db.active_scenarios
@@ -237,10 +279,13 @@ def main(cfg: SACValidateConfig) -> None:
                     torch.manual_seed(seed)
                     envs.action_space.seed(seed)
                     envs.observation_space.seed(seed)
+                    if not cfg.validate_common.fixed_env:
+                        env_seed = seed
                     # Reset environments
                     obs, info = envs.reset(
-                        seed=[seed + i for i in range(scenario_db.num_envs)]
+                        seed=[env_seed + i for i in range(scenario_db.num_envs)]
                     )
+                    time_taken = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Close progress bar
     pbar.close()

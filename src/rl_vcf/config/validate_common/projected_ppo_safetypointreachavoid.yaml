@@ -15,3 +15,5 @@ policy_path: "policies/base_policy.pt"
 load_db: false
 load_db_path: "databases/task_policy_db.pkl"
 control_rng: true
+fixed_env: false
+env_seed: 0

@@ -202,6 +202,8 @@ def main(cfg: SACSafetyConfig) -> None:
         # the agent can distribute the total however it wants between the actions).
         # Going more positive than -1 will increase the total entropy budget and thus
         # force more exploration.
+        # For gaussians, the entropy is ln(sigma) + 0.5*ln(2*pi*e) for each action dimension.
+        # So average sigma per action is exp(targ_ent_coeff - 0.5*(1 + ln(2*pi))).
         target_entropy = (
             torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
             * cfg.train.targ_ent_coeff
