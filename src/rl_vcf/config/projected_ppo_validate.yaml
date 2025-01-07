@@ -1,7 +1,10 @@
 defaults:
   - hydra: chdir
-  - validate_common: projected_ppo_safetypointreachavoid
-  - wandb: rl_vcf_validate
+  # - validate_common: projected_ppo_safetypointreachavoid
+  # - wandb: rl_vcf_validate
+  - validate_common: projected_ppo_safetypointreachavoid_low_freq
+  - wandb: rl_vcf_validate_low_freq
   - _self_
-task_policy_path: "policies/task_policy.pt"
+# task_policy_path: "policies/task_policy.pt"
+task_policy_path: "policies/task_policy_low_freq.pt"
 alpha: 100.0

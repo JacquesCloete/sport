@@ -1,0 +1,23 @@
+gym_id: "SafetyPointReachAvoidLowFreqCurriculum5-v0"
+seed: 0
+total_eps: 10000
+torch_deterministic: true
+# cuda: true
+cuda: false
+# capture_video: true
+capture_video: false
+capture_video_ep_interval: 100
+# num_envs: 1
+num_envs: 42
+clip_action: false
+normalize_observation: false
+normalize_reward: false
+save_db: true
+save_db_ep_interval: 1000
+policy_path: "policies/base_policy_low_freq.pt"
+load_db: false
+load_db_path: "databases/base_policy_db_low_freq.pkl"
+# control_rng: true
+control_rng: false
+# env_seed: null
+env_seed: 0

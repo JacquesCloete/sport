@@ -1,17 +1,17 @@
 program: projected_ppo_validate.py
-name: projected_ppo_validate_sweep_fixed_env
+name: projected_ppo_validate_low_freq_fixed_env_sweep
 method: grid
 parameters:
   alpha:
-    values: [1.0, 1.01, 1.02, 1.05, 1.1, 1.5, 5.0, 10.0, 15.0]
+    values: [1.0, 1.05, 1.1, 1.5, 5.0, 10.0, 100.0, 200.0]
   validate_common.gym_id:
-    value: "SafetyPointReachAvoidCurriculum5-v0"
-  validate_common.fixed_env:
-    value: true
+    # value: "SafetyPointReachAvoidCurriculum5-v0"
+    value: "SafetyPointReachAvoidLowFreqCurriculum5-v0"
   validate_common.env_seed:
     value: 0
   wandb.group:
-    value: "projected_ppo_validate_sweep_fixed_env"
+    # value: "projected_ppo_validate_fixed_env_sweep"
+    value: "projected_ppo_validate_low_freq_fixed_env_sweep"
 
 command:
   - ${env}

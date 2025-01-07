@@ -86,21 +86,25 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
 
     # Environment setup
     # Note: vectorized envs
-    if cfg.validate_common.fixed_env:
+    if cfg.validate_common.env_seed == "None":  # null becomes "None" str in wandb sweep
+        env_seed = None
+    elif cfg.validate_common.env_seed is not None:
+        assert isinstance(
+            cfg.validate_common.env_seed, int
+        ), "env_seed must be type int"
         env_seed = cfg.validate_common.env_seed
-    else:
-        env_seed = seed
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [
             make_env_safety(
                 cfg.validate_common.gym_id,
                 i,
-                env_seed + i,
+                seed + i,
                 cfg.validate_common.capture_video,
                 cfg.validate_common.capture_video_ep_interval,
                 cfg.validate_common.clip_action,
                 cfg.validate_common.normalize_observation,
                 cfg.validate_common.normalize_reward,
+                env_seed=env_seed,
             )
             for i in range(cfg.validate_common.num_envs)
         ]
@@ -195,7 +199,10 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
 
     # Initialize validation loop
     global_step = 0
-    obs, info = envs.reset(seed=[seed + i for i in range(scenario_db.num_envs)])
+    if env_seed is not None:
+        obs, info = envs.reset()  # env seed is already set using the SeedWrapper
+    else:
+        obs, info = envs.reset(seed=[seed + i for i in range(scenario_db.num_envs)])
     done = np.full(scenario_db.num_envs, False, dtype=bool)
     goal_achieved = np.full(scenario_db.num_envs, False, dtype=bool)
     constraint_violated = np.full(scenario_db.num_envs, False, dtype=bool)
@@ -296,12 +303,6 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                     torch.manual_seed(seed)
                     envs.action_space.seed(seed)
                     envs.observation_space.seed(seed)
-                    if not cfg.validate_common.fixed_env:
-                        env_seed = seed
-                    # Reset environments
-                    obs, info = envs.reset(
-                        seed=[env_seed + i for i in range(scenario_db.num_envs)]
-                    )
                     time_taken = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Close progress bar

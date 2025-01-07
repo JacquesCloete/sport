@@ -22,5 +22,4 @@ class ValidateCommonConfig:
     load_db: bool  # load existing scenario database
     load_db_path: str  # relative path to existing scenario database
     control_rng: bool  # control rng for reproducibility
-    fixed_env: bool  # fix the environment seed
-    env_seed: int  # environment seed (used if fixed_env is True)
+    env_seed: int | None  # fixed environment seed

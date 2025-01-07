@@ -1,4 +1,4 @@
-gym_id: "SafetyPointReachAvoidCurriculum5-v0"
+gym_id: "SafetyPointReachAvoidLowFreqCurriculum5-v0"
 seed: 0
 total_eps: 1000
 torch_deterministic: true
@@ -11,8 +11,8 @@ normalize_observation: false
 normalize_reward: false
 save_db: true
 save_db_ep_interval: 100
-policy_path: "policies/base_policy.pt"
+policy_path: "policies/base_policy_low_freq.pt"
 load_db: false
-load_db_path: "databases/base_policy_db.pkl"
+load_db_path: "databases/task_policy_db_low_freq.pkl"
 control_rng: true
 env_seed: null

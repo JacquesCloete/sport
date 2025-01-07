@@ -246,6 +246,7 @@ class ScenarioDatabase:
         self,
         bounds: Container[float],
         conf: float = 0.9999999,
+        cutoff: float = 1.0,
     ) -> tuple[Figure, Axes, dict[float, tuple[int, float]]]:
         """
         Plot the maximum permitted log-alpha over all possible maximum episode lengths T for each specified failure bound.
@@ -256,7 +257,10 @@ class ScenarioDatabase:
         peaks = {}
         for bound in bounds:
             log_alpha_array = np.maximum(
-                (np.log(bound) - np.log(self.get_all_epsilons(conf=conf)[1:]))
+                (
+                    np.log(bound)
+                    - np.log(self.get_all_epsilons(conf=conf, cutoff=cutoff)[1:])
+                )
                 / np.arange(1, self.max_episode_length + 1),
                 0.0,
             )  # alpha >= 1.0 required
@@ -285,12 +289,16 @@ class ScenarioDatabase:
         self,
         bound: float,
         conf: float = 0.9999999,
+        cutoff: float = 1.0,
     ) -> tuple[int, float]:
         """
         Get the optimal maximum episode length T for a given bound, as well as the maximum permitted alpha for that bound.
         """
         log_alpha_array = np.maximum(
-            (np.log(bound) - np.log(self.get_all_epsilons(conf=conf)[1:]))
+            (
+                np.log(bound)
+                - np.log(self.get_all_epsilons(conf=conf, cutoff=cutoff)[1:])
+            )
             / np.arange(1, self.max_episode_length + 1),
             0.0,
         )  # alpha >= 1.0 required
@@ -534,7 +542,7 @@ def plot_mean_std_time_taken(
 
     # Plot the mean with standard deviations
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(alphas, means, color="blue")
+    ax.plot(alphas, means, color="blue", marker="x")
     ax.fill_between(alphas, means - stds, means + stds, alpha=0.2, color="blue")
     ax.fill_between(
         alphas,
@@ -554,6 +562,7 @@ def plot_mean_std_time_taken(
 
 
 def plot_failure_probs(
+    epsilon: float,
     empirical_failure_rate: dict[float, float],
     posterior_bound_failure_rate: dict[float, float],
     T: int,
@@ -569,7 +578,6 @@ def plot_failure_probs(
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    epsilon = posterior_bound_failure_rate[1.0]
     scen_str = r"Prior Scenario-Based Bound ($\beta={b:.1E}$)".format(b=1 - conf)
     # alpha_range = np.linspace(alphas.min(), alphas.max(), 1000)
     alpha_range = np.logspace(np.log10(alphas.min()), np.log10(alphas.max()), 1000)
@@ -577,10 +585,10 @@ def plot_failure_probs(
     ax.plot(alpha_range, prior_bounds, color="green", label=scen_str)
 
     emp_str = r"Empirical Failure Rate ($\frac{{k}}{{N}}$)"
-    ax.plot(alphas, failure_rates, color="blue", label=emp_str)
+    ax.plot(alphas, failure_rates, color="blue", label=emp_str, marker="x")
 
     scen_str = r"Posterior Scenario-Based Bound ($\beta={b:.1E}$)".format(b=1 - conf)
-    ax.plot(alphas, posterior_bounds, color="red", label=scen_str)
+    ax.plot(alphas, posterior_bounds, color="red", label=scen_str, marker="x")
 
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_ylim([0.0, 1.0])
@@ -597,6 +605,7 @@ def plot_max_log_alpha(
     scenario_db: ScenarioDatabase,
     bounds: Container[float],
     conf: float = 0.9999999,
+    cutoff: float = 1.0,
 ) -> tuple[Figure, Axes, dict[float, tuple[int, float]]]:
     """
     LEGACY FUNCTION FOR OLD SCENARIO DATABASES -- now a method of ScenarioDatabase
@@ -609,7 +618,10 @@ def plot_max_log_alpha(
     peaks = {}
     for bound in bounds:
         log_alpha_array = np.maximum(
-            (np.log(bound) - np.log(scenario_db.get_all_epsilons(conf=conf)[1:]))
+            (
+                np.log(bound)
+                - np.log(scenario_db.get_all_epsilons(conf=conf, cutoff=cutoff)[1:])
+            )
             / np.arange(1, scenario_db.max_episode_length + 1),
             0.0,
         )  # alpha >= 1.0 required
@@ -639,6 +651,7 @@ def get_optimal_max_episode_length(
     scenario_db: ScenarioDatabase,
     bound: float,
     conf: float = 0.9999999,
+    cutoff: float = 1.0,
 ) -> tuple[int, float]:
     """
     LEGACY FUNCTION FOR OLD SCENARIO DATABASES -- now a method of ScenarioDatabase
@@ -646,7 +659,10 @@ def get_optimal_max_episode_length(
     Get the optimal maximum episode length T for a given bound, as well as the maximum permitted alpha for that bound.
     """
     log_alpha_array = np.maximum(
-        (np.log(bound) - np.log(scenario_db.get_all_epsilons(conf=conf)[1:]))
+        (
+            np.log(bound)
+            - np.log(scenario_db.get_all_epsilons(conf=conf, cutoff=cutoff)[1:])
+        )
         / np.arange(1, scenario_db.max_episode_length + 1),
         0.0,
     )  # alpha >= 1.0 required

@@ -1,7 +1,12 @@
 defaults:
   - hydra: chdir
-  - train: sac_safetypointreachavoid
-  - train_common: sac_safetypointreachavoid
-  - safety_common: sac_safetypointreachavoid
+  # - train: sac_safetypointreachavoid
+  # - train_common: sac_safetypointreachavoid
+  # - safety_common: sac_safetypointreachavoid
+  # - network: sac
+  # - wandb: rl_vcf_train
+  - train: sac_safetypointreachavoid_low_freq
+  - train_common: sac_safetypointreachavoid_low_freq
+  - safety_common: sac_safetypointreachavoid_low_freq
   - network: sac
-  - wandb: rl_vcf_train
+  - wandb: rl_vcf_train_low_freq

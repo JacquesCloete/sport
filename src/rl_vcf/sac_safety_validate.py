@@ -84,25 +84,48 @@ def main(cfg: SACValidateConfig) -> None:
 
     # Environment setup
     # Note: vectorized envs
-    if cfg.validate_common.fixed_env:
+    if cfg.validate_common.env_seed == "None":  # null becomes "None" str in wandb sweep
+        env_seed = None
+    elif cfg.validate_common.env_seed is not None:
+        assert isinstance(
+            cfg.validate_common.env_seed, int
+        ), "env_seed must be type int"
         env_seed = cfg.validate_common.env_seed
+    if cfg.validate_common.num_envs > 1 and not cfg.validate_common.control_rng:
+        # Speedup for vectorized envs using multiprocessing
+        envs = safety_gymnasium.vector.SafetyAsyncVectorEnv(
+            [
+                make_env_safety(
+                    cfg.validate_common.gym_id,
+                    i,
+                    seed + i,
+                    cfg.validate_common.capture_video,
+                    cfg.validate_common.capture_video_ep_interval,
+                    cfg.validate_common.clip_action,
+                    cfg.validate_common.normalize_observation,
+                    cfg.validate_common.normalize_reward,
+                    env_seed=env_seed,
+                )
+                for i in range(cfg.validate_common.num_envs)
+            ]
+        )
     else:
-        env_seed = seed
-    envs = safety_gymnasium.vector.SafetySyncVectorEnv(
-        [
-            make_env_safety(
-                cfg.validate_common.gym_id,
-                i,
-                env_seed + i,
-                cfg.validate_common.capture_video,
-                cfg.validate_common.capture_video_ep_interval,
-                cfg.validate_common.clip_action,
-                cfg.validate_common.normalize_observation,
-                cfg.validate_common.normalize_reward,
-            )
-            for i in range(cfg.validate_common.num_envs)
-        ]
-    )
+        envs = safety_gymnasium.vector.SafetySyncVectorEnv(
+            [
+                make_env_safety(
+                    cfg.validate_common.gym_id,
+                    i,
+                    seed + i,
+                    cfg.validate_common.capture_video,
+                    cfg.validate_common.capture_video_ep_interval,
+                    cfg.validate_common.clip_action,
+                    cfg.validate_common.normalize_observation,
+                    cfg.validate_common.normalize_reward,
+                    env_seed=env_seed,
+                )
+                for i in range(cfg.validate_common.num_envs)
+            ]
+        )
     assert isinstance(
         envs.single_action_space, Box
     ), "only continuous action space is supported"
@@ -178,7 +201,10 @@ def main(cfg: SACValidateConfig) -> None:
 
     # Initialize validation loop
     global_step = 0
-    obs, info = envs.reset(seed=[seed + i for i in range(scenario_db.num_envs)])
+    if env_seed is not None:
+        obs, info = envs.reset()  # env seed is already set using the SeedWrapper
+    else:
+        obs, info = envs.reset(seed=[seed + i for i in range(scenario_db.num_envs)])
     done = np.full(scenario_db.num_envs, False, dtype=bool)
     goal_achieved = np.full(scenario_db.num_envs, False, dtype=bool)
     constraint_violated = np.full(scenario_db.num_envs, False, dtype=bool)
@@ -200,6 +226,7 @@ def main(cfg: SACValidateConfig) -> None:
     )
 
     time_taken = np.zeros(scenario_db.num_envs, dtype=int)
+    num_collected_scenarios_remainder = scenario_db.num_collected_scenarios
 
     # Instantiate progress bar
     pbar = tqdm(
@@ -226,6 +253,9 @@ def main(cfg: SACValidateConfig) -> None:
 
             global_step += 1 * scenario_db.num_envs
 
+            num_collected_scenarios_remainder += (
+                scenario_db.num_collected_scenarios - previous_num_collected_scenarios
+            )
             if scenario_db.num_collected_scenarios > previous_num_collected_scenarios:
                 writer.add_scalar(
                     "charts/num_collected_scenarios",
@@ -261,11 +291,13 @@ def main(cfg: SACValidateConfig) -> None:
             # Save scenario database
             if cfg.validate_common.save_db:
                 if (
-                    scenario_db.num_collected_scenarios
-                    % cfg.validate_common.save_db_ep_interval
-                    == 0
+                    num_collected_scenarios_remainder
+                    >= cfg.validate_common.save_db_ep_interval
                 ):
                     save_scenario_database(scenario_db, "base_policy_db.pkl")
+                    num_collected_scenarios_remainder -= (
+                        cfg.validate_common.save_db_ep_interval
+                    )
 
             pbar.update(max_num_scenarios_complete)
 
@@ -279,12 +311,6 @@ def main(cfg: SACValidateConfig) -> None:
                     torch.manual_seed(seed)
                     envs.action_space.seed(seed)
                     envs.observation_space.seed(seed)
-                    if not cfg.validate_common.fixed_env:
-                        env_seed = seed
-                    # Reset environments
-                    obs, info = envs.reset(
-                        seed=[env_seed + i for i in range(scenario_db.num_envs)]
-                    )
                     time_taken = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Close progress bar

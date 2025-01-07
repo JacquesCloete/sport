@@ -1,4 +1,4 @@
-from typing import OrderedDict
+from typing import Any, OrderedDict
 
 import gymnasium as gym
 import numpy as np
@@ -7,7 +7,22 @@ from gymnasium.spaces import Box, Space
 from numpy.typing import NDArray
 
 # Gymnasium 0.28.1 (used by safety_gymnasium) breaks RecordVideo
+# See fix here: https://github.com/Farama-Foundation/Gymnasium/issues/455
 # Use fork JacquesCloete/Gymnasium, branch jacques/v0.28.1, to fix
+
+
+class SeedWrapper(gym.Wrapper):
+    """Wrapper to fix the seed of an environment."""
+
+    def __init__(self, env: gym.Env, env_seed: int) -> None:
+        super().__init__(env)
+        self.env_seed = env_seed
+
+    def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
+        if seed is None:
+            return self.env.reset(seed=self.env_seed, options=options)
+        else:
+            return self.env.reset(seed=seed, options=options)
 
 
 def make_env(
@@ -20,6 +35,7 @@ def make_env(
     normalize_observation: bool = False,
     normalize_reward: bool = False,
     video_dir: str = "",
+    env_seed: int | None = None,
 ) -> gym.Env:
     """Create the environment."""
 
@@ -55,6 +71,9 @@ def make_env(
                 #     env, lambda rew: np.clip(rew, -10.0, 10.0)
                 # )  # reward clipping after normalization has no evidence of being helpful
         # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
+        # fix env seed
+        if env_seed is not None:
+            env = SeedWrapper(env, env_seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
@@ -72,15 +91,18 @@ def make_env_safety(
     normalize_observation: bool = False,
     normalize_reward: bool = False,
     video_dir: str = "",
+    env_seed: int | None = None,
+    camera_name: str = "fixedfar",
 ) -> gym.Env:
     """Create the environment."""
 
     def thunk():
         # see safety_gymnasium/builder.py to see kwargs
+        render_mode = "rgb_array" if capture_video else None
         env = safety_gymnasium.make(
             gym_id,
-            render_mode="rgb_array",  # need to set render mode for video recording
-            camera_name="fixedfar",
+            render_mode=render_mode,  # need to set render mode for video recording
+            camera_name=camera_name,
         )
         # wrap to gymnasium
         env = safety_gymnasium.wrappers.SafetyGymnasium2Gymnasium(env)
@@ -110,6 +132,9 @@ def make_env_safety(
                 )  # can help performance a lot!
             if normalize_reward:
                 env = gym.wrappers.NormalizeReward(env)  # can help performance a lot!
+        # fix env seed
+        if env_seed is not None:
+            env = SeedWrapper(env, env_seed)
         # wrap back to safety gymnasium
         env = safety_gymnasium.wrappers.Gymnasium2SafetyGymnasium(env)
         # env.seed(seed) # Doesn't work anymore, now set seed using env.reset(seed=seed)
