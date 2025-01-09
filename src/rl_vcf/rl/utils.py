@@ -209,3 +209,18 @@ def get_actor_structure(
         ), f"{np.prod(act_space.shape)} (env act space) != {output_shape} (actor output shape)"
 
     return hidden_sizes, activation
+
+
+def kl_divergence_diag_gaussians(
+    mu1: NDArray, std1: NDArray, mu2: NDArray, std2: NDArray
+) -> NDArray:
+    """
+    Compute the KL divergence between two multivariate diagonal Gaussian distributions for batched inputs.
+
+    KL(N(mu1, std1) || N(mu2, std2))
+    """
+    var1 = std1**2
+    var2 = std2**2
+    term1 = np.log(var2 / var1).sum(axis=-1)
+    term2 = ((var1 + (mu1 - mu2) ** 2) / var2).sum(axis=-1)
+    return 0.5 * (term1 + term2 - mu1.shape[-1])

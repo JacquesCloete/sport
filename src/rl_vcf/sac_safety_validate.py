@@ -225,7 +225,7 @@ def main(cfg: SACValidateConfig) -> None:
         global_step=global_step,
     )
 
-    time_taken = np.zeros(scenario_db.num_envs, dtype=int)
+    episodic_length = np.zeros(scenario_db.num_envs, dtype=int)
     num_collected_scenarios_remainder = scenario_db.num_collected_scenarios
 
     # Instantiate progress bar
@@ -240,7 +240,7 @@ def main(cfg: SACValidateConfig) -> None:
 
             next_obs, _, _, term, trunc, info = envs.step(act.detach().cpu().numpy())
 
-            time_taken += 1
+            episodic_length += 1
 
             done = np.logical_or(term, trunc)
             goal_achieved, constraint_violated = process_info(info)
@@ -278,11 +278,11 @@ def main(cfg: SACValidateConfig) -> None:
             for i in range(scenario_db.num_envs):
                 if done[i]:
                     writer.add_scalar(
-                        "charts/time_taken",
-                        time_taken[i],
+                        "charts/episodic_length",
+                        episodic_length[i],
                         global_step=global_step,
                     )
-                    time_taken[i] = 0
+                    episodic_length[i] = 0
 
             max_num_scenarios_complete = sum(
                 previous_active_scenarios != scenario_db.active_scenarios
@@ -311,7 +311,7 @@ def main(cfg: SACValidateConfig) -> None:
                     torch.manual_seed(seed)
                     envs.action_space.seed(seed)
                     envs.observation_space.seed(seed)
-                    time_taken = np.zeros(scenario_db.num_envs, dtype=int)
+                    episodic_length = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Close progress bar
     pbar.close()

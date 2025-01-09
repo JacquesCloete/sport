@@ -20,8 +20,11 @@ from rl_vcf.rl.algos.projected_ppo.core import MLPProjectedActorCritic
 from rl_vcf.rl.algos.projected_ppo.dataclasses import ProjectedPPOValidateConfig
 from rl_vcf.rl.utils import get_actor_structure, make_env_safety, process_info
 from rl_vcf.validate.utils import (
+    PolicyProjectionDatabase,
     ScenarioDatabase,
+    load_policy_projection_database,
     load_scenario_database,
+    save_policy_projection_database,
     save_scenario_database,
 )
 
@@ -152,6 +155,30 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                 )
             )
 
+    # Instantiate policy projection database
+    policy_projection_db = PolicyProjectionDatabase(
+        alpha=cfg.alpha,
+        check_ref_task_policy=cfg.check_ref_task_policy,
+    )
+    if cfg.load_policy_projection_db:
+        # Load existing policy projection database
+        abs_policy_projection_db_path = os.path.join(
+            original_dir, cfg.load_policy_projection_db_path
+        )
+        if os.path.exists(abs_policy_projection_db_path):
+            policy_projection_db = load_policy_projection_database(
+                abs_policy_projection_db_path
+            )
+            assert (
+                policy_projection_db.check_ref_task_policy == cfg.check_ref_task_policy
+            ), "check_ref_task_policy flag in policy projection database does not match config"
+        else:
+            warning(
+                "Policy projection database path {f} does not exist. Creating new policy projection database.".format(
+                    f=abs_policy_projection_db_path
+                )
+            )
+
     # Load policy state dicts
     abs_base_policy_path = os.path.join(original_dir, cfg.validate_common.policy_path)
     assert os.path.exists(
@@ -160,14 +187,25 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
     base_loaded_state_dict = torch.load(
         abs_base_policy_path, weights_only=True, map_location=device
     )
-    abs_task_policy_path = os.path.join(original_dir, cfg.task_policy_path)
 
+    abs_task_policy_path = os.path.join(original_dir, cfg.task_policy_path)
     assert os.path.exists(
         abs_task_policy_path
     ), "Task policy path {path} does not exist".format(path=abs_task_policy_path)
     task_loaded_state_dict = torch.load(
         abs_task_policy_path, weights_only=True, map_location=device
     )
+
+    if cfg.check_ref_task_policy:
+        abs_ref_task_policy_path = os.path.join(original_dir, cfg.ref_task_policy_path)
+        assert os.path.exists(
+            abs_ref_task_policy_path
+        ), "Task policy path {path} does not exist".format(
+            path=abs_ref_task_policy_path
+        )
+        ref_task_loaded_state_dict = torch.load(
+            abs_ref_task_policy_path, weights_only=True, map_location=device
+        )
 
     # Construct agent from state dicts
     base_loaded_hidden_sizes, base_loaded_activation = get_actor_structure(
@@ -176,6 +214,18 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
     task_loaded_hidden_sizes, task_loaded_activation = get_actor_structure(
         task_loaded_state_dict, envs.single_observation_space, envs.single_action_space
     )
+    if cfg.check_ref_task_policy:
+        ref_task_loaded_hidden_sizes, ref_task_loaded_activation = get_actor_structure(
+            ref_task_loaded_state_dict,
+            envs.single_observation_space,
+            envs.single_action_space,
+        )
+    else:
+        ref_task_loaded_hidden_sizes, ref_task_loaded_activation = get_actor_structure(
+            task_loaded_state_dict,
+            envs.single_observation_space,
+            envs.single_action_space,
+        )
 
     agent = MLPProjectedActorCritic(
         observation_space=envs.single_observation_space,
@@ -185,9 +235,17 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
         hidden_sizes_task=task_loaded_hidden_sizes,
         activation_task=eval("nn." + task_loaded_activation + "()"),
         alpha=cfg.alpha,
+        check_max_policy_ratios=cfg.check_max_policy_ratios,
+        check_ref_task_policy=cfg.check_ref_task_policy,
+        hidden_sizes_ref_task=ref_task_loaded_hidden_sizes,
+        activation_ref_task=eval("nn." + ref_task_loaded_activation + "()"),
     )
     agent.pi_base.load_state_dict(base_loaded_state_dict, strict=True)
     agent.pi_task.load_state_dict(task_loaded_state_dict, strict=True)
+    if cfg.check_ref_task_policy:
+        agent.pi_ref_task.load_state_dict(ref_task_loaded_state_dict, strict=True)
+    else:
+        agent.pi_ref_task.load_state_dict(task_loaded_state_dict, strict=True)
     agent.to(device)
 
     goal_achieved_count = 0
@@ -223,7 +281,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
         global_step=global_step,
     )
 
-    time_taken = np.zeros(scenario_db.num_envs, dtype=int)
+    episodic_length = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Instantiate progress bar
     pbar = tqdm(
@@ -233,11 +291,51 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
     with torch.no_grad():  # no gradient needed for testing
         while scenario_db.num_collected_scenarios < scenario_db.max_num_scenarios:
 
-            act, _, _ = agent.act(torch.Tensor(obs).to(device))
+            act = agent.act(torch.Tensor(obs).to(device))
+
+            policy_projection_db.update(agent)
+
+            if cfg.check_max_policy_ratios:
+                for i in range(cfg.validate_common.num_envs):
+                    # note: log_task_base may contain infinities!
+                    writer.add_scalar(
+                        "charts/task_max_log_policy_ratio",
+                        agent.latest_log_task_base[i],
+                        global_step=global_step,
+                    )
+                    writer.add_scalar(
+                        "charts/proj_max_log_policy_ratio",
+                        agent.latest_log_proj_base[i],
+                        global_step=global_step,
+                    )
+                    if cfg.check_ref_task_policy:
+                        writer.add_scalar(
+                            "charts/ref_task_max_log_policy_ratio",
+                            agent.latest_log_ref_task_base[i],
+                            global_step=global_step,
+                        )
+                        writer.add_scalar(
+                            "charts/ref_proj_max_log_policy_ratio",
+                            agent.latest_log_ref_proj_base[i],
+                            global_step=global_step,
+                        )
+
+            if cfg.check_ref_task_policy:
+                for i in range(cfg.validate_common.num_envs):
+                    writer.add_scalar(
+                        "charts/task_to_ref_kl_divergence",
+                        policy_projection_db.kl_div_ref_task[-1][i],
+                        global_step=global_step,
+                    )
+                    writer.add_scalar(
+                        "charts/proj_to_ref_kl_divergence",
+                        policy_projection_db.kl_div_ref_proj[-1][i],
+                        global_step=global_step,
+                    )
 
             next_obs, _, _, term, trunc, info = envs.step(act.detach().cpu().numpy())
 
-            time_taken += 1
+            episodic_length += 1
 
             done = np.logical_or(term, trunc)
             goal_achieved, constraint_violated = process_info(info)
@@ -272,17 +370,17 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
             for i in range(scenario_db.num_envs):
                 if done[i]:
                     writer.add_scalar(
-                        "charts/time_taken",
-                        time_taken[i],
+                        "charts/episodic_length",
+                        episodic_length[i],
                         global_step=global_step,
                     )
-                    time_taken[i] = 0
+                    episodic_length[i] = 0
 
             max_num_scenarios_complete = sum(
                 previous_active_scenarios != scenario_db.active_scenarios
             )
 
-            # Save scenario database
+            # Save scenario database and policy projection database
             if cfg.validate_common.save_db:
                 if (
                     scenario_db.num_collected_scenarios
@@ -290,6 +388,9 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                     == 0
                 ):
                     save_scenario_database(scenario_db, "task_policy_db.pkl")
+                    save_policy_projection_database(
+                        policy_projection_db, "policy_projection_db.pkl"
+                    )
 
             pbar.update(max_num_scenarios_complete)
 
@@ -303,14 +404,17 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                     torch.manual_seed(seed)
                     envs.action_space.seed(seed)
                     envs.observation_space.seed(seed)
-                    time_taken = np.zeros(scenario_db.num_envs, dtype=int)
+                    episodic_length = np.zeros(scenario_db.num_envs, dtype=int)
 
     # Close progress bar
     pbar.close()
 
-    # Save final scenario database
+    # Save final scenario database and policy projection database
     if cfg.validate_common.save_db:
         save_scenario_database(scenario_db, "task_policy_db.pkl")
+        save_policy_projection_database(
+            policy_projection_db, "policy_projection_db.pkl"
+        )
 
     # Close envs
     envs.close()

@@ -11,3 +11,4 @@ normalize_observation: true
 normalize_reward: true
 save_model: true
 save_model_ep_interval: 100
+env_seed: null

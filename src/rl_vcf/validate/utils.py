@@ -10,6 +10,11 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
+from rl_vcf.rl.algos.projected_ppo.core import MLPProjectedActorCritic
+from rl_vcf.rl.utils import kl_divergence_diag_gaussians
+
+ETA = 1e-6
+
 
 class ScenarioDatabase:
     """A class for storing and updating a scenario database."""
@@ -316,6 +321,455 @@ def save_scenario_database(db: ScenarioDatabase, filename: str) -> None:
 
 def load_scenario_database(filename: str) -> ScenarioDatabase:
     """Load a scenario database from a file."""
+    assert ".pkl" in filename, "filename must have .pkl extension."
+    with open(filename, "rb") as file:
+        db = pickle.load(file)
+    return db
+
+
+class PolicyProjectionDatabase:
+    """A class for storing policy projection data."""
+
+    def __init__(self, alpha: float, check_ref_task_policy: bool = False) -> None:
+
+        self.alpha = alpha
+        self.check_ref_task_policy = check_ref_task_policy
+
+        self.mu_base = []
+        self.std_base = []
+        self.mu_task = []
+        self.std_task = []
+        self.mu_proj = []
+        self.std_proj = []
+
+        if self.check_ref_task_policy:
+            self.mu_ref_task = []
+            self.std_ref_task = []
+            self.mu_ref_proj = []
+            self.std_ref_proj = []
+            self.kl_div_ref_task = []
+            self.kl_div_ref_proj = []
+
+        self.num_collected_data = 0
+
+    def update(self, agent: MLPProjectedActorCritic) -> None:
+        """Update the policy projection database."""
+        self.mu_base.append(agent.latest_mu_base)
+        self.std_base.append(agent.latest_std_base)
+        self.mu_task.append(agent.latest_mu_task)
+        self.std_task.append(agent.latest_std_task)
+        self.mu_proj.append(agent.latest_mu_proj)
+        self.std_proj.append(agent.latest_std_proj)
+
+        if self.check_ref_task_policy:
+            self.mu_ref_task.append(agent.latest_mu_ref_task)
+            self.std_ref_task.append(agent.latest_std_ref_task)
+            self.mu_ref_proj.append(agent.latest_mu_ref_proj)
+            self.std_ref_proj.append(agent.latest_std_ref_proj)
+            self.kl_div_ref_task.append(
+                kl_divergence_diag_gaussians(
+                    agent.latest_mu_ref_task,
+                    agent.latest_std_ref_task,
+                    agent.latest_mu_task,
+                    agent.latest_std_task,
+                )
+            )
+            self.kl_div_ref_proj.append(
+                kl_divergence_diag_gaussians(
+                    agent.latest_mu_ref_proj,
+                    agent.latest_std_ref_proj,
+                    agent.latest_mu_proj,
+                    agent.latest_std_proj,
+                )
+            )
+
+        self.num_collected_data += 1
+
+    def concatenate_lists(self) -> None:
+        """
+        Concatenate the lists in the policy projection database into NumPy arrays, overriding them.
+
+        Only do this once you are done updating the database.
+        """
+        self.mu_base = np.concatenate(self.mu_base)
+        self.std_base = np.concatenate(self.std_base)
+        self.mu_task = np.concatenate(self.mu_task)
+        self.std_task = np.concatenate(self.std_task)
+        self.mu_proj = np.concatenate(self.mu_proj)
+        self.std_proj = np.concatenate(self.std_proj)
+
+        if self.check_ref_task_policy:
+            self.mu_ref_task = np.concatenate(self.mu_ref_task)
+            self.std_ref_task = np.concatenate(self.std_ref_task)
+            self.mu_ref_proj = np.concatenate(self.mu_ref_proj)
+            self.std_ref_proj = np.concatenate(self.std_ref_proj)
+            self.kl_div_ref_task = np.concatenate(self.kl_div_ref_task)
+            self.kl_div_ref_proj = np.concatenate(self.kl_div_ref_proj)
+
+    def plot_policy_projection(
+        self,
+        idxs: Container[int],
+        plot_ref_task: bool = False,
+        Nx: int = 50,
+        Ny: int = 50,
+        border: float = 0.01,
+        marker_size: int = 10,
+        marker_edge_width: int = 2,
+        extra_alphas: list[float] = [],
+    ) -> tuple[Figure, Axes]:
+        """
+        Plot policy projection data for the selected samples.
+
+        Note that the contour and color map for the mean and std plot assume the std and mean are kept fixed.
+        """
+        assert self.num_collected_data > 0, "No data has been collected yet."
+        assert not isinstance(self.mu_base, list), "Data has not been concatenated yet."
+        assert (
+            self.mu_base.shape[1] == 2
+        ), "Only 2D policy projection plotting is supported."
+        if plot_ref_task:
+            assert self.check_ref_task_policy, "Reference task data not available."
+
+        N = len(idxs)
+        fig, axs = plt.subplots(N, 2, figsize=(14, 7 * N))
+        axs = axs.ravel()
+
+        for k, idx in enumerate(idxs):
+
+            mu_x_min = min(
+                self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
+            )
+            mu_x_max = max(
+                self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
+            )
+
+            mu_y_min = min(
+                self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
+            )
+            mu_y_max = max(
+                self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
+            )
+
+            if plot_ref_task:
+                mu_x_min = min(
+                    mu_x_min,
+                    self.mu_ref_task[idx][0],
+                    self.mu_ref_proj[idx][0],
+                )
+                mu_x_max = max(
+                    mu_x_max,
+                    self.mu_ref_task[idx][0],
+                    self.mu_ref_proj[idx][0],
+                )
+                mu_y_min = min(
+                    mu_y_min,
+                    self.mu_ref_task[idx][1],
+                    self.mu_ref_proj[idx][1],
+                )
+                mu_y_max = max(
+                    mu_y_max,
+                    self.mu_ref_task[idx][1],
+                    self.mu_ref_proj[idx][1],
+                )
+
+            mu_x_min -= border
+            mu_x_max += border
+            mu_y_min -= border
+            mu_y_max += border
+
+            mu_x = np.linspace(mu_x_min, mu_x_max, Nx)
+            mu_y = np.linspace(mu_y_min, mu_y_max, Ny)
+
+            policy_ratio = np.zeros((Ny, Nx))
+            policy_ratio_ref = np.zeros((Ny, Nx))
+            mu = np.zeros(2)
+
+            for i in range(0, Nx):
+                for j in range(0, Ny):
+                    mu[0] = mu_x[i]
+                    mu[1] = mu_y[j]
+                    policy_ratio[j][i] = np.prod(
+                        np.multiply(
+                            self.std_base[idx] / self.std_proj[idx],
+                            np.exp(
+                                1
+                                / 2
+                                * np.square(mu - self.mu_base[idx])
+                                / (
+                                    np.square(self.std_base[idx])
+                                    - np.square(self.std_proj[idx])
+                                )
+                            ),
+                        )
+                    )
+            for i in range(0, Nx):
+                for j in range(0, Ny):
+                    mu[0] = mu_x[i]
+                    mu[1] = mu_y[j]
+                    policy_ratio_ref[j][i] = np.prod(
+                        np.multiply(
+                            self.std_base[idx] / self.std_ref_proj[idx],
+                            np.exp(
+                                1
+                                / 2
+                                * np.square(mu - self.mu_base[idx])
+                                / (
+                                    np.square(self.std_base[idx])
+                                    - np.square(self.std_ref_proj[idx])
+                                )
+                            ),
+                        )
+                    )
+            im = axs[2 * k].pcolormesh(mu_x, mu_y, policy_ratio)
+            # fig.colorbar(im, label="Policy Ratio")
+            cs = axs[2 * k].contour(
+                mu_x,
+                mu_y,
+                policy_ratio,
+                levels=extra_alphas + [self.alpha],
+                colors="k",
+            )
+            h, l = cs.legend_elements()
+            cs_ref = axs[2 * k].contour(
+                mu_x,
+                mu_y,
+                policy_ratio_ref,
+                levels=extra_alphas + [self.alpha],
+                colors="k",
+                linestyles="--",
+            )
+            h_ref, l_ref = cs_ref.legend_elements()
+            axs[2 * k].clabel(cs, inline=True, fontsize=10)
+            axs[2 * k].clabel(cs_ref, inline=True, fontsize=10)
+            base_marker = axs[2 * k].plot(
+                self.mu_base[idx][0],
+                self.mu_base[idx][1],
+                "rx",
+                markersize=marker_size,
+                markeredgewidth=marker_edge_width,
+                label="base",
+            )
+            task_marker = axs[2 * k].plot(
+                self.mu_task[idx][0],
+                self.mu_task[idx][1],
+                "bx",
+                markersize=marker_size,
+                markeredgewidth=marker_edge_width,
+                label="task",
+            )
+            proj_marker = axs[2 * k].plot(
+                self.mu_proj[idx][0],
+                self.mu_proj[idx][1],
+                "m+",
+                markersize=marker_size,
+                markeredgewidth=marker_edge_width,
+                label="proj",
+            )
+            if plot_ref_task:
+                task_ref_marker = axs[2 * k].plot(
+                    self.mu_ref_task[idx][0],
+                    self.mu_ref_task[idx][1],
+                    "gx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="task (ref)",
+                )
+                proj_ref_marker = axs[2 * k].plot(
+                    self.mu_ref_proj[idx][0],
+                    self.mu_ref_proj[idx][1],
+                    "y+",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="proj (ref)",
+                )
+            axs[2 * k].set_xlabel(r"$\mu_{0}$")
+            axs[2 * k].set_ylabel(r"$\mu_{1}$")
+
+            if k == 0:
+                axs[2 * k].set_title("Policy Means")
+                if plot_ref_task:
+                    axs[2 * k].legend(
+                        [
+                            base_marker[0],
+                            task_marker[0],
+                            proj_marker[0],
+                            task_ref_marker[0],
+                            proj_ref_marker[0],
+                            h[0],
+                            h_ref[0],
+                        ],
+                        [
+                            "base",
+                            "task",
+                            "proj",
+                            "task (ref)",
+                            "proj (ref)",
+                            r"policy ratio = $\alpha$",
+                            r"policy ratio = $\alpha$ (ref)",
+                        ],
+                    )
+                else:
+                    axs[2 * k].legend(
+                        [
+                            base_marker[0],
+                            task_marker[0],
+                            proj_marker[0],
+                            h[0],
+                            h_ref[0],
+                        ],
+                        [
+                            "base",
+                            "task",
+                            "proj",
+                            r"policy ratio = $\alpha$",
+                            r"policy ratio = $\alpha$ (ref)",
+                        ],
+                    )
+
+        for k, idx in enumerate(idxs):
+
+            sigma_x_min = min(
+                self.std_base[idx][0], self.std_task[idx][0], self.std_proj[idx][0]
+            )
+            sigma_x_max = self.std_base[idx][0] - ETA
+
+            sigma_y_min = min(
+                self.std_base[idx][1], self.std_task[idx][1], self.std_proj[idx][1]
+            )
+            sigma_y_max = self.std_base[idx][1] - ETA
+
+            if plot_ref_task:
+                sigma_x_min = min(
+                    sigma_x_min,
+                    self.std_ref_task[idx][0],
+                    self.std_ref_proj[idx][0],
+                )
+                sigma_y_min = min(
+                    sigma_y_min,
+                    self.std_ref_task[idx][1],
+                    self.std_ref_proj[idx][1],
+                )
+
+            sigma_x_min = max(sigma_x_min - border, ETA)
+            sigma_y_min = max(sigma_y_min - border, ETA)
+
+            sigma_x = np.linspace(sigma_x_min, sigma_x_max, Nx)
+            sigma_y = np.linspace(sigma_y_min, sigma_y_max, Ny)
+
+            policy_ratio = np.zeros((Ny, Nx))
+            policy_ratio_ref = np.zeros((Ny, Nx))
+            sigma = np.zeros(2)
+
+            for i in range(0, Nx):
+                for j in range(0, Ny):
+                    sigma[0] = sigma_x[i]
+                    sigma[1] = sigma_y[j]
+                    policy_ratio[j][i] = np.prod(
+                        np.multiply(
+                            self.std_base[k] / sigma,
+                            np.exp(
+                                1
+                                / 2
+                                * np.square(self.mu_proj[k] - self.mu_base[k])
+                                / (np.square(self.std_base[k]) - np.square(sigma))
+                            ),
+                        )
+                    )
+            for i in range(0, Nx):
+                for j in range(0, Ny):
+                    sigma[0] = sigma_x[i]
+                    sigma[1] = sigma_y[j]
+                    policy_ratio_ref[j][i] = np.prod(
+                        np.multiply(
+                            self.std_base[k] / sigma,
+                            np.exp(
+                                1
+                                / 2
+                                * np.square(self.mu_ref_proj[k] - self.mu_base[k])
+                                / (np.square(self.std_base[k]) - np.square(sigma))
+                            ),
+                        )
+                    )
+
+            im = axs[2 * k + 1].pcolormesh(sigma_x, sigma_y, policy_ratio)
+            # fig.colorbar(im, label="Policy Ratio")
+            cs = axs[2 * k + 1].contour(
+                sigma_x,
+                sigma_y,
+                policy_ratio,
+                levels=extra_alphas + [self.alpha],
+                colors="k",
+            )
+            cs_ref = axs[2 * k + 1].contour(
+                sigma_x,
+                sigma_y,
+                policy_ratio_ref,
+                levels=extra_alphas + [self.alpha],
+                colors="k",
+                linestyles="--",
+            )
+            axs[2 * k + 1].clabel(cs, inline=True, fontsize=10)
+            axs[2 * k + 1].clabel(cs_ref, inline=True, fontsize=10)
+            axs[2 * k + 1].plot(
+                self.std_base[idx][0],
+                self.std_base[idx][1],
+                "rx",
+                markersize=marker_size,
+                markeredgewidth=marker_edge_width,
+                label="base",
+            )
+            axs[2 * k + 1].plot(
+                self.std_task[idx][0],
+                self.std_task[idx][1],
+                "bx",
+                markersize=marker_size,
+                markeredgewidth=marker_edge_width,
+                label="task",
+            )
+            axs[2 * k + 1].plot(
+                self.std_proj[idx][0],
+                self.std_proj[idx][1],
+                "m+",
+                markersize=marker_size,
+                markeredgewidth=marker_edge_width,
+                label="proj",
+            )
+            if plot_ref_task:
+                axs[2 * k + 1].plot(
+                    self.std_ref_task[idx][0],
+                    self.std_ref_task[idx][1],
+                    "gx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="task (ref)",
+                )
+                axs[2 * k + 1].plot(
+                    self.std_ref_proj[idx][0],
+                    self.std_ref_proj[idx][1],
+                    "y+",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="proj (ref)",
+                )
+            axs[2 * k + 1].set_xlabel(r"$\sigma_{0}$")
+            axs[2 * k + 1].set_ylabel(r"$\sigma_{1}$")
+
+            if k == 0:
+                axs[2 * k + 1].set_title("Policy Standard Deviations")
+        return fig, axs
+
+
+def save_policy_projection_database(
+    db: PolicyProjectionDatabase, filename: str
+) -> None:
+    """Save a dictionary to a file."""
+    assert ".pkl" in filename, "filename must have .pkl extension."
+    with open(filename, "wb") as file:
+        pickle.dump(db, file, pickle.HIGHEST_PROTOCOL)
+
+
+def load_policy_projection_database(filename: str) -> PolicyProjectionDatabase:
+    """Load a dictionary from a file."""
     assert ".pkl" in filename, "filename must have .pkl extension."
     with open(filename, "rb") as file:
         db = pickle.load(file)

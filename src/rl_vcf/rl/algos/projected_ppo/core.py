@@ -178,6 +178,10 @@ class MLPProjectedActorCritic(nn.Module):
         hidden_sizes_critic: tuple[int] = (64, 64),
         activation_critic: nn.Module = nn.Tanh(),
         alpha: float = 1.0,
+        check_max_policy_ratios: bool = False,
+        check_ref_task_policy: bool = False,
+        hidden_sizes_ref_task: tuple[int] = (64, 64),
+        activation_ref_task: nn.Module = nn.Tanh(),
     ) -> None:
         super().__init__()
         obs_dim = np.array(observation_space.shape).prod()
@@ -215,12 +219,46 @@ class MLPProjectedActorCritic(nn.Module):
             act_bias,
         )
 
+        self.check_max_policy_ratios = check_max_policy_ratios
+        self.check_ref_task_policy = check_ref_task_policy
+
+        if self.check_ref_task_policy:
+
+            # reference task policy (used to compare against current task policy)
+            self.pi_ref_task = MLPSquashedGaussianActor(
+                obs_dim,
+                act_dim,
+                hidden_sizes_ref_task,
+                activation_ref_task,
+                act_scale,
+                act_bias,
+            )
+
+            # Freeze reference task policy parameters
+            self.pi_ref_task.requires_grad_(False)
+
         # Build value function
         # Note we use V(s) as the value function
         self.v = MLPCritic(obs_dim, hidden_sizes_critic, activation_critic)
 
         # Build policy projector as CVXPY optimization problem
         self.projector = ProjectionProblem(act_dim, alpha)
+
+        # Store these for plotting/debugging
+        self.latest_mu_base = None
+        self.latest_std_base = None
+        self.latest_mu_task = None
+        self.latest_std_task = None
+        self.latest_mu_proj = None
+        self.latest_std_proj = None
+        self.latest_mu_ref_task = None
+        self.latest_std_ref_task = None
+        self.latest_mu_ref_proj = None
+        self.latest_std_ref_proj = None
+        self.latest_log_task_base = None
+        self.latest_log_proj_base = None
+        self.latest_log_ref_task_base = None
+        self.latest_log_ref_proj_base = None
 
     def get_value(self, obs: torch.Tensor) -> torch.Tensor:
         """Get value from critic."""
@@ -260,29 +298,23 @@ class MLPProjectedActorCritic(nn.Module):
         self,
         obs: torch.Tensor,
         act: torch.Tensor | None = None,
-        check_max_policy_ratios: bool = False,
     ) -> tuple[
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
-        NDArray | None,
-        NDArray | None,
     ]:
         """
         Sample projected action (and log-prob) from actor and get value from critic.
 
         Note that the projection means that we cannot get gradients for the projected action.
         """
-        act, logp_a, entropy, x_t, log_task_base, log_proj_base = (
-            self.pi_task_projected_forward(
-                obs,
-                act,
-                deterministic=False,
-                with_log_prob=True,
-                check_max_policy_ratios=check_max_policy_ratios,
-            )
+        act, logp_a, entropy, x_t = self.pi_task_projected_forward(
+            obs,
+            act,
+            deterministic=False,
+            with_log_prob=True,
         )
         return (
             act,
@@ -290,8 +322,6 @@ class MLPProjectedActorCritic(nn.Module):
             entropy,
             self.v.forward(obs),
             x_t,
-            log_task_base,
-            log_proj_base,
         )
 
     def pi_task_projected_forward(
@@ -300,14 +330,11 @@ class MLPProjectedActorCritic(nn.Module):
         pi_action: torch.Tensor | None = None,  # this must be untransformed action x_t
         deterministic: bool = False,
         with_log_prob: bool = True,
-        check_max_policy_ratios: bool = False,
     ) -> tuple[
         torch.Tensor,
         torch.Tensor | None,
         torch.Tensor,
         torch.Tensor,
-        NDArray | None,
-        NDArray | None,
     ]:
 
         # Get base policy distribution
@@ -352,7 +379,58 @@ class MLPProjectedActorCritic(nn.Module):
                     np_mu_base[i], np_std_base[i], np_mu_task[i], np_std_task[i]
                 )
 
-        if check_max_policy_ratios:
+        self.latest_mu_base = np_mu_base
+        self.latest_std_base = np_std_base
+        self.latest_mu_task = np_mu_task
+        self.latest_std_task = np_std_task
+        self.latest_mu_proj = np_mu_proj
+        self.latest_std_proj = np_std_proj
+
+        if self.check_ref_task_policy:
+            # Get reference task policy distribution
+            net_out_ref_task = self.pi_ref_task.net(obs)
+            mu_ref_task = self.pi_ref_task.mu_layer(net_out_ref_task)
+            log_std_ref_task = self.pi_ref_task.log_std_layer(net_out_ref_task)
+            log_std_ref_task = torch.tanh(log_std_ref_task)
+            log_std_ref_task = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+                log_std_ref_task + 1
+            )
+            std_ref_task = torch.exp(log_std_ref_task)
+
+            # Convert to numpy arrays
+            np_mu_ref_task = mu_ref_task.detach().cpu().numpy()
+            np_std_ref_task = std_ref_task.detach().cpu().numpy()
+
+            # Project reference task policy onto feasible set around base policy
+            np_mu_ref_proj = np.zeros_like(np_mu_ref_task)
+            np_std_ref_proj = np.zeros_like(np_std_ref_task)
+
+            if np.size(mu_task.shape) == 1:
+                # Single action
+                np_mu_ref_proj, np_std_ref_proj = self.projector.solve(
+                    np_mu_base, np_std_base, np_mu_ref_task, np_std_ref_task
+                )
+            else:
+                # Batch of actions
+                for i in range(np_mu_ref_task.shape[0]):
+                    np_mu_ref_proj[i], np_std_ref_proj[i] = self.projector.solve(
+                        np_mu_base[i],
+                        np_std_base[i],
+                        np_mu_ref_task[i],
+                        np_std_ref_task[i],
+                    )
+        else:
+            np_mu_ref_task = None
+            np_std_ref_task = None
+            np_mu_ref_proj = None
+            np_std_ref_proj = None
+
+        self.latest_mu_ref_task = np_mu_ref_task
+        self.latest_std_ref_task = np_std_ref_task
+        self.latest_mu_ref_proj = np_mu_ref_proj
+        self.latest_std_ref_proj = np_std_ref_proj
+
+        if self.check_max_policy_ratios:
             # Compute max policy ratios
             if np.size(mu_task.shape) == 1:
                 log_task_base = max_log_diag_gaussian_ratio(
@@ -371,9 +449,43 @@ class MLPProjectedActorCritic(nn.Module):
                     log_proj_base[i] = max_log_diag_gaussian_ratio(
                         np_mu_base[i], np_std_base[i], np_mu_proj[i], np_std_proj[i]
                     )
+            if self.check_ref_task_policy:
+                if np.size(mu_task.shape) == 1:
+                    log_ref_task_base = max_log_diag_gaussian_ratio(
+                        np_mu_base, np_std_base, np_mu_ref_task, np_std_ref_task
+                    )
+                    log_ref_proj_base = max_log_diag_gaussian_ratio(
+                        np_mu_base, np_std_base, np_mu_ref_proj, np_std_ref_proj
+                    )
+                else:
+                    log_ref_task_base = np.zeros(np_mu_task.shape[0])
+                    log_ref_proj_base = np.zeros(np_mu_task.shape[0])
+                    for i in range(np_mu_task.shape[0]):
+                        log_ref_task_base[i] = max_log_diag_gaussian_ratio(
+                            np_mu_base[i],
+                            np_std_base[i],
+                            np_mu_ref_task[i],
+                            np_std_ref_task[i],
+                        )
+                        log_ref_proj_base[i] = max_log_diag_gaussian_ratio(
+                            np_mu_base[i],
+                            np_std_base[i],
+                            np_mu_ref_proj[i],
+                            np_std_ref_proj[i],
+                        )
+            else:
+                log_ref_task_base = None
+                log_ref_proj_base = None
         else:
             log_task_base = None
             log_proj_base = None
+            log_ref_task_base = None
+            log_ref_proj_base = None
+
+        self.latest_log_task_base = log_task_base
+        self.latest_log_proj_base = log_proj_base
+        self.latest_log_ref_task_base = log_ref_task_base
+        self.latest_log_ref_proj_base = log_ref_proj_base
 
         # Convert back to torch tensors
         mu = torch.Tensor(np_mu_proj).to(mu_task.device)
@@ -404,25 +516,21 @@ class MLPProjectedActorCritic(nn.Module):
             logp_pi,
             pi_distribution.entropy(),
             x_t,
-            log_task_base,
-            log_proj_base,
         )
 
     def act(
         self,
         obs: torch.Tensor,
         deterministic: bool = False,
-        check_max_policy_ratios: bool = False,
-    ) -> tuple[torch.Tensor, NDArray | None, NDArray | None]:
+    ) -> torch.Tensor:
         """Sample projected action from actor."""
-        action, _, _, _, log_task_base, log_proj_base = self.pi_task_projected_forward(
+        action, _, _, _ = self.pi_task_projected_forward(
             obs=obs,
             pi_action=None,
             deterministic=deterministic,
             with_log_prob=False,
-            check_max_policy_ratios=check_max_policy_ratios,
         )
-        return action, log_task_base, log_proj_base
+        return action
 
     def set_alpha(self, alpha: float = 1.0) -> None:
         assert alpha >= 1.0, "alpha >= required (alpha: {a})".format(a=alpha)

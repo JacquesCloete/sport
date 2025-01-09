@@ -8,3 +8,10 @@ defaults:
 # task_policy_path: "policies/task_policy.pt"
 task_policy_path: "policies/task_policy_low_freq.pt"
 alpha: 100.0
+check_ref_task_policy: false
+# ref_task_policy_path: "policies/task_policy.pt"
+ref_task_policy_path: "policies/task_policy_low_freq.pt"
+check_max_policy_ratios: true
+load_policy_projection_db: false
+# load_policy_projection_db_path: "databases/policy_projection_db.pkl"
+load_policy_projection_db_path: "databases/policy_projection_db_low_freq.pkl"

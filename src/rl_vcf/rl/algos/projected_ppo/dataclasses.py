@@ -34,6 +34,12 @@ class TrainProjectedPPOConfig:
         bool  # log predicted discounted return during warm-up
     )
     check_max_policy_ratios: bool  # check max policy ratios during training
+    check_ref_task_policy: (
+        bool  # check reference task policy mean + std during training
+    )
+    ref_task_policy_path: str  # relative path to reference task policy
+    save_db: bool  # save policy projection database
+    save_db_ep_interval: int  # interval for saving policy projection database
 
 
 @dataclass
@@ -42,12 +48,18 @@ class ProjectedPPOConfig:
     train_common: TrainCommonConfig = field(default_factory=TrainCommonConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
-    negate_reward: bool = False  # debugging flag that negates reward (rew = -rew)
 
 
 @dataclass
 class ProjectedPPOValidateConfig:
+    task_policy_path: str  # relative path to task policy
+    alpha: float  # Maximum policy ratio for projection
+    check_ref_task_policy: (
+        bool  # check reference task policy mean + std during validation
+    )
+    ref_task_policy_path: str  # relative path to reference task policy
+    check_max_policy_ratios: bool  # check max policy ratios during validation
+    load_policy_projection_db: bool  # load policy projection database
+    load_policy_projection_db_path: str  # relative path to policy projection database
     validate_common: ValidateCommonConfig = field(default_factory=ValidateCommonConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
-    task_policy_path: str = "policies/task_policy.pt"  # relative path to task policy
-    alpha: float = 1.0  # Maximum policy ratio for projection

@@ -32,6 +32,7 @@ class TrainCommonConfig:
     normalize_reward: bool  # normalize rewards for continuous action spaces
     save_model: bool  # save model weights
     save_model_ep_interval: int  # save model weights episode interval
+    env_seed: int | None  # fixed environment seed
 
 
 @dataclass

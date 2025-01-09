@@ -1,8 +1,10 @@
 defaults:
   - hydra: chdir
-  - train: projected_ppo_safetypointreachavoid
-  - train_common: projected_ppo_safetypointreachavoid
-  - network: ppo
-  - wandb: rl_vcf_finetune
-  - _self_
-negate_reward: true
+  # - train: projected_ppo_safetypointreachavoid
+  # - train_common: projected_ppo_safetypointreachavoid
+  # - network: sac
+  # - wandb: rl_vcf_finetune
+  - train: projected_ppo_safetypointreachavoid_low_freq
+  - train_common: projected_ppo_safetypointreachavoid_low_freq
+  - network: sac
+  - wandb: rl_vcf_finetune_low_freq

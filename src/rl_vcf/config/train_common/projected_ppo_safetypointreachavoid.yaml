@@ -1,4 +1,4 @@
-gym_id: "SafetyPointReachAvoidResetGoal0-v0"
+gym_id: "SafetyPointReachAvoidResetGoalCurriculum5-v0"
 seed: 0
 total_timesteps: 201000
 torch_deterministic: true
@@ -11,3 +11,4 @@ normalize_observation: false
 normalize_reward: false
 save_model: true
 save_model_ep_interval: 25
+env_seed: 0

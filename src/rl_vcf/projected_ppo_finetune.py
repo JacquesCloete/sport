@@ -20,6 +20,10 @@ from tqdm import tqdm
 from rl_vcf.rl.algos.projected_ppo.core import MLPProjectedActorCritic
 from rl_vcf.rl.algos.projected_ppo.dataclasses import ProjectedPPOConfig
 from rl_vcf.rl.utils import get_actor_structure, make_env_safety
+from rl_vcf.validate.utils import (
+    PolicyProjectionDatabase,
+    save_policy_projection_database,
+)
 
 
 # Need to run everything inside hydra main function
@@ -85,7 +89,11 @@ def main(cfg: ProjectedPPOConfig) -> None:
     device = torch.device(
         "cuda" if torch.cuda.is_available() and cfg.train_common.cuda else "cpu"
     )
-
+    if cfg.train_common.env_seed == "None":  # null becomes "None" str in wandb sweep
+        env_seed = None
+    elif cfg.train_common.env_seed is not None:
+        assert isinstance(cfg.train_common.env_seed, int), "env_seed must be type int"
+        env_seed = cfg.train_common.env_seed
     # Environment setup for critic retargetting
     # Note: vectorized envs
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
@@ -99,6 +107,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.clip_action,
                 cfg.train_common.normalize_observation,
                 cfg.train_common.normalize_reward,
+                env_seed=env_seed,
             )
             for i in range(cfg.train_common.num_envs)
         ]
@@ -122,6 +131,12 @@ def main(cfg: ProjectedPPOConfig) -> None:
             )
         os.makedirs(policies_folder, exist_ok=True)
 
+    # Instantiate policy projection database
+    policy_projection_db = PolicyProjectionDatabase(
+        alpha=cfg.train.alpha,
+        check_ref_task_policy=cfg.train.check_ref_task_policy,
+    )
+
     # Load policy state dict
     abs_base_policy_path = os.path.join(original_dir, cfg.train.base_policy_path)
     assert os.path.exists(
@@ -130,6 +145,19 @@ def main(cfg: ProjectedPPOConfig) -> None:
     loaded_state_dict = torch.load(
         abs_base_policy_path, weights_only=True, map_location=device
     )
+
+    if cfg.train.check_ref_task_policy:
+        abs_ref_task_policy_path = os.path.join(
+            original_dir, cfg.train.ref_task_policy_path
+        )
+        assert os.path.exists(
+            abs_ref_task_policy_path
+        ), "Task policy path {path} does not exist".format(
+            path=abs_ref_task_policy_path
+        )
+        ref_task_loaded_state_dict = torch.load(
+            abs_ref_task_policy_path, weights_only=True, map_location=device
+        )
 
     # Construct agent from state dict
     loaded_hidden_sizes, loaded_activation = get_actor_structure(
@@ -143,6 +171,16 @@ def main(cfg: ProjectedPPOConfig) -> None:
         critic_hidden_sizes = cfg.network.hidden_sizes
         critic_activation = cfg.network.activation
 
+    if cfg.train.check_ref_task_policy:
+        ref_task_loaded_hidden_sizes, ref_task_loaded_activation = get_actor_structure(
+            ref_task_loaded_state_dict,
+            envs.single_observation_space,
+            envs.single_action_space,
+        )
+    else:
+        ref_task_loaded_hidden_sizes = loaded_hidden_sizes
+        ref_task_loaded_activation = loaded_activation
+
     # Create agent
     agent = MLPProjectedActorCritic(
         observation_space=envs.single_observation_space,
@@ -154,11 +192,19 @@ def main(cfg: ProjectedPPOConfig) -> None:
         hidden_sizes_critic=critic_hidden_sizes,
         activation_critic=eval("nn." + critic_activation + "()"),
         alpha=cfg.train.alpha,
+        check_max_policy_ratios=cfg.train.check_max_policy_ratios,
+        check_ref_task_policy=cfg.train.check_ref_task_policy,
+        hidden_sizes_ref_task=ref_task_loaded_hidden_sizes,
+        activation_ref_task=eval("nn." + ref_task_loaded_activation + "()"),
     ).to(device)
     print(agent)
 
     agent.pi_base.load_state_dict(loaded_state_dict, strict=True)
     agent.pi_task.load_state_dict(loaded_state_dict, strict=True)
+    if cfg.train.check_ref_task_policy:
+        agent.pi_ref_task.load_state_dict(ref_task_loaded_state_dict, strict=True)
+    else:
+        agent.pi_ref_task.load_state_dict(loaded_state_dict, strict=True)
     agent.to(device)
 
     # Create optimizers
@@ -196,15 +242,18 @@ def main(cfg: ProjectedPPOConfig) -> None:
         p.requires_grad = False
 
     # Critic retargetting stage (learn critic for the base policy in the new environment)
-    global_step = 0
+    warmup_global_step = 0
     start_time = time.time()
-    next_obs = torch.Tensor(
-        envs.reset(
+
+    if env_seed is not None:
+        obs, info = envs.reset()  # env seed is already set using the SeedWrapper
+    else:
+        obs, info = envs.reset(
             seed=[cfg.train.warmup_seed + i for i in range(cfg.train_common.num_envs)]
-        )[
-            0  # observations are first element of env reset output
-        ]
-    ).to(device)
+        )
+
+    next_obs = torch.Tensor(obs).to(device)
+
     next_done = torch.zeros(cfg.train_common.num_envs).to(device)
 
     batch_size = int(cfg.train.num_steps * cfg.train_common.num_envs)
@@ -227,7 +276,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
         for step in range(0, cfg.train.num_steps):  # collect batch data
             # note the batch data gets overwritten in each update loop
-            global_step += 1 * cfg.train_common.num_envs
+            warmup_global_step += 1 * cfg.train_common.num_envs
             observations[step] = next_obs
             dones[step] = next_done
 
@@ -242,8 +291,6 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
             # Environment step
             next_obs, rew, cost, term, trunc, info = envs.step(act.cpu().numpy())
-            if cfg.negate_reward:
-                rew = -rew
             rewards[step] = torch.tensor(rew).to(device).view(-1)
             done = np.logical_or(
                 term,
@@ -261,14 +308,15 @@ def main(cfg: ProjectedPPOConfig) -> None:
                     writer.add_scalar(
                         "charts/warmup_episodic_discounted_return",
                         discounted_return,
-                        global_step=global_step,
+                        global_step=warmup_global_step,
                     )
                     writer.add_scalar(
                         "charts/warmup_predicted_discounted_return",
                         pred_return,
-                        global_step=global_step,
+                        global_step=warmup_global_step,
                     )
                     # get predicted return at start of next episode
+                    # note: if env_seed is set, this will always be the same until critic is next updated
                     pred_return = agent.v.forward(next_obs[0]).item()
                     discounted_return = 0
                     discount_factor = 1.0
@@ -388,16 +436,20 @@ def main(cfg: ProjectedPPOConfig) -> None:
         writer.add_scalar(
             "charts/warmup_learning_rate",
             v_optimizer.param_groups[0]["lr"],
-            global_step,
+            global_step=warmup_global_step,
         )
-        writer.add_scalar("losses/warmup_value_loss", v_loss.item(), global_step)
         writer.add_scalar(
-            "losses/warmup_explained_variance", explained_var, global_step
+            "losses/warmup_value_loss", v_loss.item(), global_step=warmup_global_step
+        )
+        writer.add_scalar(
+            "losses/warmup_explained_variance",
+            explained_var,
+            global_step=warmup_global_step,
         )
         writer.add_scalar(
             "charts/warmup_sps",
-            int(global_step / (time.time() - start_time)),
-            global_step,
+            int(warmup_global_step / (time.time() - start_time)),
+            global_step=warmup_global_step,
         )
 
     # Unfreeze Q networks
@@ -425,6 +477,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.clip_action,
                 cfg.train_common.normalize_observation,
                 cfg.train_common.normalize_reward,
+                env_seed=env_seed,
             )
             for i in range(cfg.train_common.num_envs)
         ]
@@ -437,13 +490,16 @@ def main(cfg: ProjectedPPOConfig) -> None:
     # Start training
     global_step = 0
     start_time = time.time()
-    next_obs = torch.Tensor(
-        envs.reset(
+
+    if env_seed is not None:
+        obs, info = envs.reset()  # env seed is already set using the SeedWrapper
+    else:
+        obs, info = envs.reset(
             seed=[cfg.train_common.seed + i for i in range(cfg.train_common.num_envs)]
-        )[
-            0  # observations are first element of env reset output
-        ]
-    ).to(device)
+        )
+
+    next_obs = torch.Tensor(obs).to(device)
+
     next_done = torch.zeros(cfg.train_common.num_envs).to(device)
 
     batch_size = int(cfg.train.num_steps * cfg.train_common.num_envs)
@@ -466,24 +522,48 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
             # ALGO LOGIC: action logic
             with torch.no_grad():  # don't need to cache gradients during rollout
-                act, logprob, _, value, x_t, log_task_base, log_proj_base = (
-                    agent.get_projected_action_and_value(
-                        next_obs,
-                        check_max_policy_ratios=cfg.train.check_max_policy_ratios,
-                    )
+                act, logprob, _, value, x_t = agent.get_projected_action_and_value(
+                    next_obs
                 )
+
+                policy_projection_db.update(agent)
+
                 if cfg.train.check_max_policy_ratios:
-                    # note: log_task_base may contain infinities!
-                    writer.add_scalar(
-                        "charts/task_max_log_policy_ratio",
-                        log_task_base,
-                        global_step=global_step,
-                    )
-                    writer.add_scalar(
-                        "charts/proj_max_log_policy_ratio",
-                        log_proj_base,
-                        global_step=global_step,
-                    )
+                    for i in range(cfg.train_common.num_envs):
+                        # note: log_task_base may contain infinities!
+                        writer.add_scalar(
+                            "charts/task_max_log_policy_ratio",
+                            agent.latest_log_task_base[i],
+                            global_step=global_step,
+                        )
+                        writer.add_scalar(
+                            "charts/proj_max_log_policy_ratio",
+                            agent.latest_log_proj_base[i],
+                            global_step=global_step,
+                        )
+                        if cfg.train.check_ref_task_policy:
+                            writer.add_scalar(
+                                "charts/ref_task_max_log_policy_ratio",
+                                agent.latest_log_ref_task_base[i],
+                                global_step=global_step,
+                            )
+                            writer.add_scalar(
+                                "charts/ref_proj_max_log_policy_ratio",
+                                agent.latest_log_ref_proj_base[i],
+                                global_step=global_step,
+                            )
+                if cfg.train.check_ref_task_policy:
+                    for i in range(cfg.train_common.num_envs):
+                        writer.add_scalar(
+                            "charts/task_to_ref_kl_divergence",
+                            policy_projection_db.kl_div_ref_task[-1][i],
+                            global_step=global_step,
+                        )
+                        writer.add_scalar(
+                            "charts/proj_to_ref_kl_divergence",
+                            policy_projection_db.kl_div_ref_proj[-1][i],
+                            global_step=global_step,
+                        )
                 # Need to also store untransformed actions for state-dependent std
                 x_ts[step] = x_t
                 values[step] = value.flatten()
@@ -492,8 +572,6 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
             # Environment step
             next_obs, rew, cost, term, trunc, info = envs.step(act.cpu().numpy())
-            if cfg.negate_reward:
-                rew = -rew
             rewards[step] = torch.tensor(rew).to(device).view(-1)
             done = np.logical_or(
                 term,
@@ -544,6 +622,13 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 )
             # Increment episode counter
             episode_count += done
+
+            # Save policy projection database
+            if cfg.train.save_db:
+                if episode_count[0] % cfg.train.save_db_ep_interval == 0:
+                    save_policy_projection_database(
+                        policy_projection_db, "policy_projection_db.pkl"
+                    )
 
         # Bootstrap reward if not done (take value at next obs as end-of-rollout value)
         # Note that for vectorized environments, each environment auto-resets when done
@@ -733,6 +818,12 @@ def main(cfg: ProjectedPPOConfig) -> None:
         # Save trained task policy separately as well
         policy_name = "policies/rl-task-policy-final.pt"
         torch.save(agent.pi_task.state_dict(), policy_name)
+
+    # Save final policy projection database
+    if cfg.train.save_db:
+        save_policy_projection_database(
+            policy_projection_db, "policy_projection_db.pkl"
+        )
 
     # Close envs
     envs.close()
