@@ -108,6 +108,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                 cfg.validate_common.normalize_observation,
                 cfg.validate_common.normalize_reward,
                 env_seed=env_seed,
+                camera_name=cfg.validate_common.camera_name,
             )
             for i in range(cfg.validate_common.num_envs)
         ]
@@ -244,8 +245,6 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
     agent.pi_task.load_state_dict(task_loaded_state_dict, strict=True)
     if cfg.check_ref_task_policy:
         agent.pi_ref_task.load_state_dict(ref_task_loaded_state_dict, strict=True)
-    else:
-        agent.pi_ref_task.load_state_dict(task_loaded_state_dict, strict=True)
     agent.to(device)
 
     goal_achieved_count = 0
@@ -283,6 +282,10 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
 
     episodic_length = np.zeros(scenario_db.num_envs, dtype=int)
 
+    # Episode counter
+    # To be consistent with episode tracking for videos, track episode of each env separately
+    episode_count = np.array([0] * cfg.validate_common.num_envs, dtype=int)
+
     # Instantiate progress bar
     pbar = tqdm(
         total=(scenario_db.max_num_scenarios - scenario_db.num_collected_scenarios)
@@ -293,7 +296,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
 
             act = agent.act(torch.Tensor(obs).to(device))
 
-            policy_projection_db.update(agent)
+            policy_projection_db.update(agent, episode_count)
 
             if cfg.check_max_policy_ratios:
                 for i in range(cfg.validate_common.num_envs):
@@ -379,6 +382,9 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
             max_num_scenarios_complete = sum(
                 previous_active_scenarios != scenario_db.active_scenarios
             )
+
+            # Increment episode counter
+            episode_count += done
 
             # Save scenario database and policy projection database
             if cfg.validate_common.save_db:

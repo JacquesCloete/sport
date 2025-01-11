@@ -124,6 +124,7 @@ def main(cfg: SACSafetyConfig) -> None:
                     cfg.train_common.normalize_observation,
                     cfg.train_common.normalize_reward,
                     video_dir=f"/level_{str(cfg.train.curriculum_levels[cur_level_idx])}",
+                    camera_name=cfg.train_common.camera_name,
                 )
                 for i in range(cfg.train_common.num_envs)
             ]
@@ -140,6 +141,7 @@ def main(cfg: SACSafetyConfig) -> None:
                     cfg.train_common.clip_action,
                     cfg.train_common.normalize_observation,
                     cfg.train_common.normalize_reward,
+                    camera_name=cfg.train_common.camera_name,
                 )
                 for i in range(cfg.train_common.num_envs)
             ]
@@ -450,6 +452,7 @@ def main(cfg: SACSafetyConfig) -> None:
                             cfg.train_common.normalize_observation,
                             cfg.train_common.normalize_reward,
                             video_dir=f"/level_{str(cfg.train.curriculum_levels[cur_level_idx])}",
+                            camera_name=cfg.train_common.camera_name,
                         )
                         for i in range(cfg.train_common.num_envs)
                     ]

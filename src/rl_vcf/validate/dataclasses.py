@@ -12,6 +12,7 @@ class ValidateCommonConfig:
     cuda: bool  # use gpu
     capture_video: bool  # capture videos of agent over an episode
     capture_video_ep_interval: int  # video capture episode interval
+    camera_name: str  # name of camera to use for video capture
     num_envs: int  # no. parallel environments
     clip_action: bool  # clip actions for continuous action spaces
     normalize_observation: bool  # normalize observations for continuous action spaces

@@ -105,6 +105,7 @@ def main(cfg: SACValidateConfig) -> None:
                     cfg.validate_common.normalize_observation,
                     cfg.validate_common.normalize_reward,
                     env_seed=env_seed,
+                    camera_name=cfg.validate_common.camera_name,
                 )
                 for i in range(cfg.validate_common.num_envs)
             ]
@@ -122,6 +123,7 @@ def main(cfg: SACValidateConfig) -> None:
                     cfg.validate_common.normalize_observation,
                     cfg.validate_common.normalize_reward,
                     env_seed=env_seed,
+                    camera_name=cfg.validate_common.camera_name,
                 )
                 for i in range(cfg.validate_common.num_envs)
             ]

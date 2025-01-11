@@ -350,9 +350,11 @@ class PolicyProjectionDatabase:
             self.kl_div_ref_task = []
             self.kl_div_ref_proj = []
 
+        self.episode_count = []
+
         self.num_collected_data = 0
 
-    def update(self, agent: MLPProjectedActorCritic) -> None:
+    def update(self, agent: MLPProjectedActorCritic, episode_count: NDArray) -> None:
         """Update the policy projection database."""
         self.mu_base.append(agent.latest_mu_base)
         self.std_base.append(agent.latest_std_base)
@@ -383,6 +385,8 @@ class PolicyProjectionDatabase:
                 )
             )
 
+        self.episode_count.append(episode_count.copy())
+
         self.num_collected_data += 1
 
     def concatenate_lists(self) -> None:
@@ -406,16 +410,21 @@ class PolicyProjectionDatabase:
             self.kl_div_ref_task = np.concatenate(self.kl_div_ref_task)
             self.kl_div_ref_proj = np.concatenate(self.kl_div_ref_proj)
 
+        self.episode_count = np.concatenate(self.episode_count)
+
     def plot_policy_projection(
         self,
         idxs: Container[int],
+        plot_std: bool = False,
         plot_ref_task: bool = False,
+        plot_cmap: bool = False,
         Nx: int = 50,
         Ny: int = 50,
         border: float = 0.01,
         marker_size: int = 10,
         marker_edge_width: int = 2,
         extra_alphas: list[float] = [],
+        fig_size_scale_factor: float = 7.0,
     ) -> tuple[Figure, Axes]:
         """
         Plot policy projection data for the selected samples.
@@ -431,11 +440,590 @@ class PolicyProjectionDatabase:
             assert self.check_ref_task_policy, "Reference task data not available."
 
         N = len(idxs)
-        fig, axs = plt.subplots(N, 2, figsize=(14, 7 * N))
+        if plot_std:
+            fig, axs = plt.subplots(
+                N, 2, figsize=(fig_size_scale_factor * 2, fig_size_scale_factor * N)
+            )
+            axs = axs.ravel()
+
+            for k, idx in enumerate(idxs):
+
+                mu_x_min = min(
+                    self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
+                )
+                mu_x_max = max(
+                    self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
+                )
+
+                mu_y_min = min(
+                    self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
+                )
+                mu_y_max = max(
+                    self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
+                )
+
+                if plot_ref_task:
+                    mu_x_min = min(
+                        mu_x_min,
+                        self.mu_ref_task[idx][0],
+                        self.mu_ref_proj[idx][0],
+                    )
+                    mu_x_max = max(
+                        mu_x_max,
+                        self.mu_ref_task[idx][0],
+                        self.mu_ref_proj[idx][0],
+                    )
+                    mu_y_min = min(
+                        mu_y_min,
+                        self.mu_ref_task[idx][1],
+                        self.mu_ref_proj[idx][1],
+                    )
+                    mu_y_max = max(
+                        mu_y_max,
+                        self.mu_ref_task[idx][1],
+                        self.mu_ref_proj[idx][1],
+                    )
+
+                mu_x_min -= border
+                mu_x_max += border
+                mu_y_min -= border
+                mu_y_max += border
+
+                mu_x = np.linspace(mu_x_min, mu_x_max, Nx)
+                mu_y = np.linspace(mu_y_min, mu_y_max, Ny)
+
+                policy_ratio = np.zeros((Ny, Nx))
+                if plot_ref_task:
+                    policy_ratio_ref = np.zeros((Ny, Nx))
+                mu = np.zeros(2)
+
+                for i in range(0, Nx):
+                    for j in range(0, Ny):
+                        mu[0] = mu_x[i]
+                        mu[1] = mu_y[j]
+                        policy_ratio[j][i] = np.prod(
+                            np.multiply(
+                                self.std_base[idx] / self.std_proj[idx],
+                                np.exp(
+                                    1
+                                    / 2
+                                    * np.square(mu - self.mu_base[idx])
+                                    / (
+                                        np.square(self.std_base[idx])
+                                        - np.square(self.std_proj[idx])
+                                    )
+                                ),
+                            )
+                        )
+                if plot_ref_task:
+                    for i in range(0, Nx):
+                        for j in range(0, Ny):
+                            mu[0] = mu_x[i]
+                            mu[1] = mu_y[j]
+                            policy_ratio_ref[j][i] = np.prod(
+                                np.multiply(
+                                    self.std_base[idx] / self.std_ref_proj[idx],
+                                    np.exp(
+                                        1
+                                        / 2
+                                        * np.square(mu - self.mu_base[idx])
+                                        / (
+                                            np.square(self.std_base[idx])
+                                            - np.square(self.std_ref_proj[idx])
+                                        )
+                                    ),
+                                )
+                            )
+                if plot_cmap:
+                    im = axs[2 * k].pcolormesh(mu_x, mu_y, policy_ratio)
+                    # fig.colorbar(im, label="Policy Ratio")
+                cs = axs[2 * k].contour(
+                    mu_x,
+                    mu_y,
+                    policy_ratio,
+                    levels=extra_alphas + [self.alpha],
+                    colors="k",
+                )
+                h, l = cs.legend_elements()
+                axs[2 * k].clabel(cs, inline=True, fontsize=10)
+                if plot_ref_task:
+                    cs_ref = axs[2 * k].contour(
+                        mu_x,
+                        mu_y,
+                        policy_ratio_ref,
+                        levels=extra_alphas + [self.alpha],
+                        colors="k",
+                        linestyles="--",
+                    )
+                    h_ref, l_ref = cs_ref.legend_elements()
+                    axs[2 * k].clabel(cs_ref, inline=True, fontsize=10)
+                base_marker = axs[2 * k].plot(
+                    self.mu_base[idx][0],
+                    self.mu_base[idx][1],
+                    "rx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="base",
+                )
+                task_marker = axs[2 * k].plot(
+                    self.mu_task[idx][0],
+                    self.mu_task[idx][1],
+                    "bx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="task",
+                )
+                proj_marker = axs[2 * k].plot(
+                    self.mu_proj[idx][0],
+                    self.mu_proj[idx][1],
+                    "m+",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="proj",
+                )
+                if plot_ref_task:
+                    task_ref_marker = axs[2 * k].plot(
+                        self.mu_ref_task[idx][0],
+                        self.mu_ref_task[idx][1],
+                        "gx",
+                        markersize=marker_size,
+                        markeredgewidth=marker_edge_width,
+                        label="task (ref)",
+                    )
+                    proj_ref_marker = axs[2 * k].plot(
+                        self.mu_ref_proj[idx][0],
+                        self.mu_ref_proj[idx][1],
+                        "y+",
+                        markersize=marker_size,
+                        markeredgewidth=marker_edge_width,
+                        label="proj (ref)",
+                    )
+                axs[2 * k].set_xlabel(r"$\mu_{0}$ (Mean Forward Drive Force)")
+                axs[2 * k].set_ylabel(r"$\mu_{1}$ (Mean Angular Velocity)")
+
+                if k == 0:
+                    axs[2 * k].set_title("Policy Means")
+                    if plot_ref_task:
+                        axs[2 * k].legend(
+                            [
+                                base_marker[0],
+                                task_marker[0],
+                                proj_marker[0],
+                                task_ref_marker[0],
+                                proj_ref_marker[0],
+                                h[0],
+                                h_ref[0],
+                            ],
+                            [
+                                "base",
+                                "task",
+                                "proj",
+                                "task (ref)",
+                                "proj (ref)",
+                                r"policy ratio = $\alpha$",
+                                r"policy ratio = $\alpha$ (ref)",
+                            ],
+                        )
+                    else:
+                        axs[2 * k].legend(
+                            [
+                                base_marker[0],
+                                task_marker[0],
+                                proj_marker[0],
+                                h[0],
+                            ],
+                            [
+                                "base",
+                                "task",
+                                "proj",
+                                r"policy ratio = $\alpha$",
+                            ],
+                        )
+
+            for k, idx in enumerate(idxs):
+
+                sigma_x_min = min(
+                    self.std_base[idx][0], self.std_task[idx][0], self.std_proj[idx][0]
+                )
+                sigma_x_max = self.std_base[idx][0] - ETA
+
+                sigma_y_min = min(
+                    self.std_base[idx][1], self.std_task[idx][1], self.std_proj[idx][1]
+                )
+                sigma_y_max = self.std_base[idx][1] - ETA
+
+                if plot_ref_task:
+                    sigma_x_min = min(
+                        sigma_x_min,
+                        self.std_ref_task[idx][0],
+                        self.std_ref_proj[idx][0],
+                    )
+                    sigma_y_min = min(
+                        sigma_y_min,
+                        self.std_ref_task[idx][1],
+                        self.std_ref_proj[idx][1],
+                    )
+
+                sigma_x_min = max(sigma_x_min - border, ETA)
+                sigma_y_min = max(sigma_y_min - border, ETA)
+
+                sigma_x = np.linspace(sigma_x_min, sigma_x_max, Nx)
+                sigma_y = np.linspace(sigma_y_min, sigma_y_max, Ny)
+
+                policy_ratio = np.zeros((Ny, Nx))
+                if plot_ref_task:
+                    policy_ratio_ref = np.zeros((Ny, Nx))
+                sigma = np.zeros(2)
+
+                for i in range(0, Nx):
+                    for j in range(0, Ny):
+                        sigma[0] = sigma_x[i]
+                        sigma[1] = sigma_y[j]
+                        policy_ratio[j][i] = np.prod(
+                            np.multiply(
+                                self.std_base[k] / sigma,
+                                np.exp(
+                                    1
+                                    / 2
+                                    * np.square(self.mu_proj[k] - self.mu_base[k])
+                                    / (np.square(self.std_base[k]) - np.square(sigma))
+                                ),
+                            )
+                        )
+                if plot_ref_task:
+                    for i in range(0, Nx):
+                        for j in range(0, Ny):
+                            sigma[0] = sigma_x[i]
+                            sigma[1] = sigma_y[j]
+                            policy_ratio_ref[j][i] = np.prod(
+                                np.multiply(
+                                    self.std_base[k] / sigma,
+                                    np.exp(
+                                        1
+                                        / 2
+                                        * np.square(
+                                            self.mu_ref_proj[k] - self.mu_base[k]
+                                        )
+                                        / (
+                                            np.square(self.std_base[k])
+                                            - np.square(sigma)
+                                        )
+                                    ),
+                                )
+                            )
+                if plot_cmap:
+                    im = axs[2 * k + 1].pcolormesh(sigma_x, sigma_y, policy_ratio)
+                    # fig.colorbar(im, label="Policy Ratio")
+                cs = axs[2 * k + 1].contour(
+                    sigma_x,
+                    sigma_y,
+                    policy_ratio,
+                    levels=extra_alphas + [self.alpha],
+                    colors="k",
+                )
+                axs[2 * k + 1].clabel(cs, inline=True, fontsize=10)
+                if plot_ref_task:
+                    cs_ref = axs[2 * k + 1].contour(
+                        sigma_x,
+                        sigma_y,
+                        policy_ratio_ref,
+                        levels=extra_alphas + [self.alpha],
+                        colors="k",
+                        linestyles="--",
+                    )
+                    axs[2 * k + 1].clabel(cs_ref, inline=True, fontsize=10)
+                axs[2 * k + 1].plot(
+                    self.std_base[idx][0],
+                    self.std_base[idx][1],
+                    "rx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="base",
+                )
+                axs[2 * k + 1].plot(
+                    self.std_task[idx][0],
+                    self.std_task[idx][1],
+                    "bx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="task",
+                )
+                axs[2 * k + 1].plot(
+                    self.std_proj[idx][0],
+                    self.std_proj[idx][1],
+                    "m+",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="proj",
+                )
+                if plot_ref_task:
+                    axs[2 * k + 1].plot(
+                        self.std_ref_task[idx][0],
+                        self.std_ref_task[idx][1],
+                        "gx",
+                        markersize=marker_size,
+                        markeredgewidth=marker_edge_width,
+                        label="task (ref)",
+                    )
+                    axs[2 * k + 1].plot(
+                        self.std_ref_proj[idx][0],
+                        self.std_ref_proj[idx][1],
+                        "y+",
+                        markersize=marker_size,
+                        markeredgewidth=marker_edge_width,
+                        label="proj (ref)",
+                    )
+                axs[2 * k + 1].set_xlabel(r"$\sigma_{0}$ (STD Forward Drive Force)")
+                axs[2 * k + 1].set_ylabel(r"$\sigma_{1}$ (STD Angular Velocity)")
+
+                if k == 0:
+                    axs[2 * k + 1].set_title("Policy Standard Deviations")
+
+        else:
+            fig, axs = plt.subplots(
+                1, N, figsize=(fig_size_scale_factor * N, fig_size_scale_factor)
+            )
+
+            for k, idx in enumerate(idxs):
+                mu_x_min = min(
+                    self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
+                )
+                mu_x_max = max(
+                    self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
+                )
+
+                mu_y_min = min(
+                    self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
+                )
+                mu_y_max = max(
+                    self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
+                )
+
+                if plot_ref_task:
+                    mu_x_min = min(
+                        mu_x_min,
+                        self.mu_ref_task[idx][0],
+                        self.mu_ref_proj[idx][0],
+                    )
+                    mu_x_max = max(
+                        mu_x_max,
+                        self.mu_ref_task[idx][0],
+                        self.mu_ref_proj[idx][0],
+                    )
+                    mu_y_min = min(
+                        mu_y_min,
+                        self.mu_ref_task[idx][1],
+                        self.mu_ref_proj[idx][1],
+                    )
+                    mu_y_max = max(
+                        mu_y_max,
+                        self.mu_ref_task[idx][1],
+                        self.mu_ref_proj[idx][1],
+                    )
+
+                mu_x_min -= border
+                mu_x_max += border
+                mu_y_min -= border
+                mu_y_max += border
+
+                mu_x = np.linspace(mu_x_min, mu_x_max, Nx)
+                mu_y = np.linspace(mu_y_min, mu_y_max, Ny)
+
+                policy_ratio = np.zeros((Ny, Nx))
+                if plot_ref_task:
+                    policy_ratio_ref = np.zeros((Ny, Nx))
+                mu = np.zeros(2)
+
+                for i in range(0, Nx):
+                    for j in range(0, Ny):
+                        mu[0] = mu_x[i]
+                        mu[1] = mu_y[j]
+                        policy_ratio[j][i] = np.prod(
+                            np.multiply(
+                                self.std_base[idx] / self.std_proj[idx],
+                                np.exp(
+                                    1
+                                    / 2
+                                    * np.square(mu - self.mu_base[idx])
+                                    / (
+                                        np.square(self.std_base[idx])
+                                        - np.square(self.std_proj[idx])
+                                    )
+                                ),
+                            )
+                        )
+                if plot_ref_task:
+                    for i in range(0, Nx):
+                        for j in range(0, Ny):
+                            mu[0] = mu_x[i]
+                            mu[1] = mu_y[j]
+                            policy_ratio_ref[j][i] = np.prod(
+                                np.multiply(
+                                    self.std_base[idx] / self.std_ref_proj[idx],
+                                    np.exp(
+                                        1
+                                        / 2
+                                        * np.square(mu - self.mu_base[idx])
+                                        / (
+                                            np.square(self.std_base[idx])
+                                            - np.square(self.std_ref_proj[idx])
+                                        )
+                                    ),
+                                )
+                            )
+                if plot_cmap:
+                    im = axs[k].pcolormesh(mu_x, mu_y, policy_ratio)
+                    # fig.colorbar(im, label="Policy Ratio")
+                cs = axs[k].contour(
+                    mu_x,
+                    mu_y,
+                    policy_ratio,
+                    levels=extra_alphas + [self.alpha],
+                    colors="k",
+                )
+                h, l = cs.legend_elements()
+                axs[k].clabel(cs, inline=True, fontsize=10)
+                if plot_ref_task:
+                    cs_ref = axs[k].contour(
+                        mu_x,
+                        mu_y,
+                        policy_ratio_ref,
+                        levels=extra_alphas + [self.alpha],
+                        colors="k",
+                        linestyles="--",
+                    )
+                    h_ref, l_ref = cs_ref.legend_elements()
+                    axs[k].clabel(cs_ref, inline=True, fontsize=10)
+                base_marker = axs[k].plot(
+                    self.mu_base[idx][0],
+                    self.mu_base[idx][1],
+                    "rx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="base",
+                )
+                task_marker = axs[k].plot(
+                    self.mu_task[idx][0],
+                    self.mu_task[idx][1],
+                    "bx",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="task",
+                )
+                proj_marker = axs[k].plot(
+                    self.mu_proj[idx][0],
+                    self.mu_proj[idx][1],
+                    "m+",
+                    markersize=marker_size,
+                    markeredgewidth=marker_edge_width,
+                    label="proj",
+                )
+                if plot_ref_task:
+                    task_ref_marker = axs[k].plot(
+                        self.mu_ref_task[idx][0],
+                        self.mu_ref_task[idx][1],
+                        "gx",
+                        markersize=marker_size,
+                        markeredgewidth=marker_edge_width,
+                        label="task (ref)",
+                    )
+                    proj_ref_marker = axs[k].plot(
+                        self.mu_ref_proj[idx][0],
+                        self.mu_ref_proj[idx][1],
+                        "y+",
+                        markersize=marker_size,
+                        markeredgewidth=marker_edge_width,
+                        label="proj (ref)",
+                    )
+                if k == 0:
+                    axs[k].set_ylabel(r"$\mu_{1}$ (Mean Angular Velocity)")
+
+                if k == 0:
+                    if plot_ref_task:
+                        fig.legend(
+                            [
+                                base_marker[0],
+                                task_marker[0],
+                                proj_marker[0],
+                                task_ref_marker[0],
+                                proj_ref_marker[0],
+                                h[0],
+                                h_ref[0],
+                            ],
+                            [
+                                "base",
+                                "task",
+                                "proj",
+                                "task (ref)",
+                                "proj (ref)",
+                                r"policy ratio = $\alpha$",
+                                r"policy ratio = $\alpha$ (ref)",
+                            ],
+                            loc="outside lower right",
+                            ncol=7,
+                        )
+                    else:
+                        fig.legend(
+                            [
+                                base_marker[0],
+                                task_marker[0],
+                                proj_marker[0],
+                                h[0],
+                            ],
+                            [
+                                "base",
+                                "task",
+                                "proj",
+                                r"policy ratio = $\alpha$",
+                            ],
+                            loc="outside lower right",
+                            ncol=7,
+                        )
+            # fig.suptitle("Policy Means")
+            fig.supxlabel(r"$\mu_{0}$ (Mean Forward Drive Force)")
+            fig.tight_layout()
+        return fig, axs
+
+    def plot_policy_projection_with_frames(
+        self,
+        all_ep_idxs: Container[int],
+        extracted_frames: list,
+        timesteps: Container[int],
+        plot_cmap: bool = False,
+        Nx: int = 50,
+        Ny: int = 50,
+        border: float = 0.01,
+        marker_size: int = 10,
+        marker_edge_width: int = 2,
+        extra_alphas: list[float] = [],
+        fig_size_scale_factor: float = 7.0,
+    ) -> tuple[Figure, Axes]:
+        """
+        Plot policy projection data for the selected samples.
+
+        Note that the contour and color map assumes the std is kept fixed.
+        """
+        assert self.num_collected_data > 0, "No data has been collected yet."
+        assert not isinstance(self.mu_base, list), "Data has not been concatenated yet."
+        assert (
+            self.mu_base.shape[1] == 2
+        ), "Only 2D policy projection plotting is supported."
+
+        N = len(timesteps)
+
+        idxs = all_ep_idxs[timesteps]
+
+        fig, axs = plt.subplots(
+            2, N, figsize=(fig_size_scale_factor * N, fig_size_scale_factor * 2)
+        )
         axs = axs.ravel()
-
         for k, idx in enumerate(idxs):
+            # Plot frame
+            axs[k].imshow(extracted_frames[timesteps[k]])
+            axs[k].set_title(f"t = {timesteps[k]}")
+            axs[k].axis("off")
 
+            # Plot policy projection
             mu_x_min = min(
                 self.mu_base[idx][0], self.mu_task[idx][0], self.mu_proj[idx][0]
             )
@@ -450,28 +1038,6 @@ class PolicyProjectionDatabase:
                 self.mu_base[idx][1], self.mu_task[idx][1], self.mu_proj[idx][1]
             )
 
-            if plot_ref_task:
-                mu_x_min = min(
-                    mu_x_min,
-                    self.mu_ref_task[idx][0],
-                    self.mu_ref_proj[idx][0],
-                )
-                mu_x_max = max(
-                    mu_x_max,
-                    self.mu_ref_task[idx][0],
-                    self.mu_ref_proj[idx][0],
-                )
-                mu_y_min = min(
-                    mu_y_min,
-                    self.mu_ref_task[idx][1],
-                    self.mu_ref_proj[idx][1],
-                )
-                mu_y_max = max(
-                    mu_y_max,
-                    self.mu_ref_task[idx][1],
-                    self.mu_ref_proj[idx][1],
-                )
-
             mu_x_min -= border
             mu_x_max += border
             mu_y_min -= border
@@ -481,7 +1047,6 @@ class PolicyProjectionDatabase:
             mu_y = np.linspace(mu_y_min, mu_y_max, Ny)
 
             policy_ratio = np.zeros((Ny, Nx))
-            policy_ratio_ref = np.zeros((Ny, Nx))
             mu = np.zeros(2)
 
             for i in range(0, Nx):
@@ -502,27 +1067,10 @@ class PolicyProjectionDatabase:
                             ),
                         )
                     )
-            for i in range(0, Nx):
-                for j in range(0, Ny):
-                    mu[0] = mu_x[i]
-                    mu[1] = mu_y[j]
-                    policy_ratio_ref[j][i] = np.prod(
-                        np.multiply(
-                            self.std_base[idx] / self.std_ref_proj[idx],
-                            np.exp(
-                                1
-                                / 2
-                                * np.square(mu - self.mu_base[idx])
-                                / (
-                                    np.square(self.std_base[idx])
-                                    - np.square(self.std_ref_proj[idx])
-                                )
-                            ),
-                        )
-                    )
-            im = axs[2 * k].pcolormesh(mu_x, mu_y, policy_ratio)
-            # fig.colorbar(im, label="Policy Ratio")
-            cs = axs[2 * k].contour(
+            if plot_cmap:
+                im = axs[k + N].pcolormesh(mu_x, mu_y, policy_ratio)
+                # fig.colorbar(im, label="Policy Ratio")
+            cs = axs[k + N].contour(
                 mu_x,
                 mu_y,
                 policy_ratio,
@@ -530,18 +1078,8 @@ class PolicyProjectionDatabase:
                 colors="k",
             )
             h, l = cs.legend_elements()
-            cs_ref = axs[2 * k].contour(
-                mu_x,
-                mu_y,
-                policy_ratio_ref,
-                levels=extra_alphas + [self.alpha],
-                colors="k",
-                linestyles="--",
-            )
-            h_ref, l_ref = cs_ref.legend_elements()
-            axs[2 * k].clabel(cs, inline=True, fontsize=10)
-            axs[2 * k].clabel(cs_ref, inline=True, fontsize=10)
-            base_marker = axs[2 * k].plot(
+            axs[k + N].clabel(cs, inline=True, fontsize=10)
+            base_marker = axs[k + N].plot(
                 self.mu_base[idx][0],
                 self.mu_base[idx][1],
                 "rx",
@@ -549,7 +1087,7 @@ class PolicyProjectionDatabase:
                 markeredgewidth=marker_edge_width,
                 label="base",
             )
-            task_marker = axs[2 * k].plot(
+            task_marker = axs[k + N].plot(
                 self.mu_task[idx][0],
                 self.mu_task[idx][1],
                 "bx",
@@ -557,7 +1095,7 @@ class PolicyProjectionDatabase:
                 markeredgewidth=marker_edge_width,
                 label="task",
             )
-            proj_marker = axs[2 * k].plot(
+            proj_marker = axs[k + N].plot(
                 self.mu_proj[idx][0],
                 self.mu_proj[idx][1],
                 "m+",
@@ -565,197 +1103,28 @@ class PolicyProjectionDatabase:
                 markeredgewidth=marker_edge_width,
                 label="proj",
             )
-            if plot_ref_task:
-                task_ref_marker = axs[2 * k].plot(
-                    self.mu_ref_task[idx][0],
-                    self.mu_ref_task[idx][1],
-                    "gx",
-                    markersize=marker_size,
-                    markeredgewidth=marker_edge_width,
-                    label="task (ref)",
-                )
-                proj_ref_marker = axs[2 * k].plot(
-                    self.mu_ref_proj[idx][0],
-                    self.mu_ref_proj[idx][1],
-                    "y+",
-                    markersize=marker_size,
-                    markeredgewidth=marker_edge_width,
-                    label="proj (ref)",
-                )
-            axs[2 * k].set_xlabel(r"$\mu_{0}$")
-            axs[2 * k].set_ylabel(r"$\mu_{1}$")
+            if k == 0:
+                axs[k + N].set_ylabel(r"$\mu_{1}$ (Mean Angular Velocity)")
 
             if k == 0:
-                axs[2 * k].set_title("Policy Means")
-                if plot_ref_task:
-                    axs[2 * k].legend(
-                        [
-                            base_marker[0],
-                            task_marker[0],
-                            proj_marker[0],
-                            task_ref_marker[0],
-                            proj_ref_marker[0],
-                            h[0],
-                            h_ref[0],
-                        ],
-                        [
-                            "base",
-                            "task",
-                            "proj",
-                            "task (ref)",
-                            "proj (ref)",
-                            r"policy ratio = $\alpha$",
-                            r"policy ratio = $\alpha$ (ref)",
-                        ],
-                    )
-                else:
-                    axs[2 * k].legend(
-                        [
-                            base_marker[0],
-                            task_marker[0],
-                            proj_marker[0],
-                            h[0],
-                            h_ref[0],
-                        ],
-                        [
-                            "base",
-                            "task",
-                            "proj",
-                            r"policy ratio = $\alpha$",
-                            r"policy ratio = $\alpha$ (ref)",
-                        ],
-                    )
-
-        for k, idx in enumerate(idxs):
-
-            sigma_x_min = min(
-                self.std_base[idx][0], self.std_task[idx][0], self.std_proj[idx][0]
-            )
-            sigma_x_max = self.std_base[idx][0] - ETA
-
-            sigma_y_min = min(
-                self.std_base[idx][1], self.std_task[idx][1], self.std_proj[idx][1]
-            )
-            sigma_y_max = self.std_base[idx][1] - ETA
-
-            if plot_ref_task:
-                sigma_x_min = min(
-                    sigma_x_min,
-                    self.std_ref_task[idx][0],
-                    self.std_ref_proj[idx][0],
+                fig.legend(
+                    [
+                        base_marker[0],
+                        task_marker[0],
+                        proj_marker[0],
+                        h[0],
+                    ],
+                    [
+                        "base",
+                        "task",
+                        "proj",
+                        r"policy ratio = $\alpha$",
+                    ],
+                    loc="outside lower right",
+                    ncol=7,
                 )
-                sigma_y_min = min(
-                    sigma_y_min,
-                    self.std_ref_task[idx][1],
-                    self.std_ref_proj[idx][1],
-                )
-
-            sigma_x_min = max(sigma_x_min - border, ETA)
-            sigma_y_min = max(sigma_y_min - border, ETA)
-
-            sigma_x = np.linspace(sigma_x_min, sigma_x_max, Nx)
-            sigma_y = np.linspace(sigma_y_min, sigma_y_max, Ny)
-
-            policy_ratio = np.zeros((Ny, Nx))
-            policy_ratio_ref = np.zeros((Ny, Nx))
-            sigma = np.zeros(2)
-
-            for i in range(0, Nx):
-                for j in range(0, Ny):
-                    sigma[0] = sigma_x[i]
-                    sigma[1] = sigma_y[j]
-                    policy_ratio[j][i] = np.prod(
-                        np.multiply(
-                            self.std_base[k] / sigma,
-                            np.exp(
-                                1
-                                / 2
-                                * np.square(self.mu_proj[k] - self.mu_base[k])
-                                / (np.square(self.std_base[k]) - np.square(sigma))
-                            ),
-                        )
-                    )
-            for i in range(0, Nx):
-                for j in range(0, Ny):
-                    sigma[0] = sigma_x[i]
-                    sigma[1] = sigma_y[j]
-                    policy_ratio_ref[j][i] = np.prod(
-                        np.multiply(
-                            self.std_base[k] / sigma,
-                            np.exp(
-                                1
-                                / 2
-                                * np.square(self.mu_ref_proj[k] - self.mu_base[k])
-                                / (np.square(self.std_base[k]) - np.square(sigma))
-                            ),
-                        )
-                    )
-
-            im = axs[2 * k + 1].pcolormesh(sigma_x, sigma_y, policy_ratio)
-            # fig.colorbar(im, label="Policy Ratio")
-            cs = axs[2 * k + 1].contour(
-                sigma_x,
-                sigma_y,
-                policy_ratio,
-                levels=extra_alphas + [self.alpha],
-                colors="k",
-            )
-            cs_ref = axs[2 * k + 1].contour(
-                sigma_x,
-                sigma_y,
-                policy_ratio_ref,
-                levels=extra_alphas + [self.alpha],
-                colors="k",
-                linestyles="--",
-            )
-            axs[2 * k + 1].clabel(cs, inline=True, fontsize=10)
-            axs[2 * k + 1].clabel(cs_ref, inline=True, fontsize=10)
-            axs[2 * k + 1].plot(
-                self.std_base[idx][0],
-                self.std_base[idx][1],
-                "rx",
-                markersize=marker_size,
-                markeredgewidth=marker_edge_width,
-                label="base",
-            )
-            axs[2 * k + 1].plot(
-                self.std_task[idx][0],
-                self.std_task[idx][1],
-                "bx",
-                markersize=marker_size,
-                markeredgewidth=marker_edge_width,
-                label="task",
-            )
-            axs[2 * k + 1].plot(
-                self.std_proj[idx][0],
-                self.std_proj[idx][1],
-                "m+",
-                markersize=marker_size,
-                markeredgewidth=marker_edge_width,
-                label="proj",
-            )
-            if plot_ref_task:
-                axs[2 * k + 1].plot(
-                    self.std_ref_task[idx][0],
-                    self.std_ref_task[idx][1],
-                    "gx",
-                    markersize=marker_size,
-                    markeredgewidth=marker_edge_width,
-                    label="task (ref)",
-                )
-                axs[2 * k + 1].plot(
-                    self.std_ref_proj[idx][0],
-                    self.std_ref_proj[idx][1],
-                    "y+",
-                    markersize=marker_size,
-                    markeredgewidth=marker_edge_width,
-                    label="proj (ref)",
-                )
-            axs[2 * k + 1].set_xlabel(r"$\sigma_{0}$")
-            axs[2 * k + 1].set_ylabel(r"$\sigma_{1}$")
-
-            if k == 0:
-                axs[2 * k + 1].set_title("Policy Standard Deviations")
+        fig.supxlabel(r"$\mu_{0}$ (Mean Forward Drive Force)")
+        fig.tight_layout()
         return fig, axs
 
 

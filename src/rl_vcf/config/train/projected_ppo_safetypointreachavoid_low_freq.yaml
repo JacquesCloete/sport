@@ -22,7 +22,7 @@ warmup_seed: 0
 alpha: 100.0
 record_warmup_predicted_discounted_return: true
 check_max_policy_ratios: true
-check_ref_task_policy: true
+check_ref_task_policy: false
 ref_task_policy_path: "policies/task_policy_low_freq.pt"
 save_db: true
 save_db_ep_interval: 100

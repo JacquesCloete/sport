@@ -7,6 +7,7 @@ cuda: false
 # capture_video: true
 capture_video: false
 capture_video_ep_interval: 100
+camera_name: "fixednear"
 # num_envs: 1
 num_envs: 42
 clip_action: false

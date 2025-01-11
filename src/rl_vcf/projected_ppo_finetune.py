@@ -94,7 +94,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
     elif cfg.train_common.env_seed is not None:
         assert isinstance(cfg.train_common.env_seed, int), "env_seed must be type int"
         env_seed = cfg.train_common.env_seed
-    # Environment setup for critic retargetting
+    # Environment setup for critic retargeting
     # Note: vectorized envs
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [
@@ -108,6 +108,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.normalize_observation,
                 cfg.train_common.normalize_reward,
                 env_seed=env_seed,
+                camera_name=cfg.train_common.camera_name,
             )
             for i in range(cfg.train_common.num_envs)
         ]
@@ -203,8 +204,6 @@ def main(cfg: ProjectedPPOConfig) -> None:
     agent.pi_task.load_state_dict(loaded_state_dict, strict=True)
     if cfg.train.check_ref_task_policy:
         agent.pi_ref_task.load_state_dict(ref_task_loaded_state_dict, strict=True)
-    else:
-        agent.pi_ref_task.load_state_dict(loaded_state_dict, strict=True)
     agent.to(device)
 
     # Create optimizers
@@ -464,7 +463,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
     torch.manual_seed(cfg.train_common.seed)
     torch.backends.cudnn.deterministic = cfg.train_common.torch_deterministic
 
-    # Environment setup for critic retargeting
+    # Environment setup
     # Note: vectorized envs
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [
@@ -478,6 +477,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.normalize_observation,
                 cfg.train_common.normalize_reward,
                 env_seed=env_seed,
+                camera_name=cfg.train_common.camera_name,
             )
             for i in range(cfg.train_common.num_envs)
         ]
@@ -526,7 +526,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                     next_obs
                 )
 
-                policy_projection_db.update(agent)
+                policy_projection_db.update(agent, episode_count)
 
                 if cfg.train.check_max_policy_ratios:
                     for i in range(cfg.train_common.num_envs):
