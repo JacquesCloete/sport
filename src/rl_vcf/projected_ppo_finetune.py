@@ -47,6 +47,9 @@ def main(cfg: ProjectedPPOConfig) -> None:
     working_dir = os.getcwd()
     original_dir = hydra.utils.get_original_cwd()
     print(f"Working directory : {working_dir}")
+
+    alpha_str = str(float(cfg.train.alpha)).replace(".", "-")
+
     # print(f"Test : {run_name}")
 
     # Convert config into format suitable for wandb
@@ -107,6 +110,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.clip_action,
                 cfg.train_common.normalize_observation,
                 cfg.train_common.normalize_reward,
+                video_dir="_alpha_" + alpha_str,
                 env_seed=env_seed,
                 camera_name=cfg.train_common.camera_name,
             )
@@ -119,12 +123,12 @@ def main(cfg: ProjectedPPOConfig) -> None:
     episode_count = np.array([0] * cfg.train_common.num_envs, dtype=int)
 
     if cfg.train_common.save_model:
-        models_folder = os.path.abspath("models")
+        models_folder = os.path.abspath("alpha_" + alpha_str + "_models")
         # Create models output folder if needed
         if os.path.isdir(models_folder):
             logging.warning(f"Overwriting existing models at {models_folder} folder")
         os.makedirs(models_folder, exist_ok=True)
-        policies_folder = os.path.abspath("policies")
+        policies_folder = os.path.abspath("alpha_" + alpha_str + "_policies")
         # Create policies output folder if needed
         if os.path.isdir(policies_folder):
             logging.warning(
@@ -476,6 +480,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.clip_action,
                 cfg.train_common.normalize_observation,
                 cfg.train_common.normalize_reward,
+                video_dir="_alpha_" + alpha_str,
                 env_seed=env_seed,
                 camera_name=cfg.train_common.camera_name,
             )
@@ -607,12 +612,20 @@ def main(cfg: ProjectedPPOConfig) -> None:
                     # use episode number of env 0 (not total episode count!)
                     if episode_count[0] % cfg.train_common.save_model_ep_interval == 0:
                         # Save model
-                        model_name = f"models/rl-model-episode-{episode_count[0]}.pt"
+                        model_name = (
+                            "alpha_"
+                            + alpha_str
+                            + f"_models/rl-model-episode-{episode_count[0]}.pt"
+                        )
                         torch.save(agent.state_dict(), model_name)
                         # Save policy separately as well
                         policy_name = (
-                            f"policies/rl-task-policy-episode-{episode_count[0]}.pt"
+                            "alpha_"
+                            + alpha_str
+                            + f"_policies/rl-task-policy-episode-{episode_count[0]}.pt"
                         )
+                        torch.save(agent.pi_task.state_dict(), policy_name)
+                        policy_name = "alpha_" + alpha_str + "_task_policy.pt"
                         torch.save(agent.pi_task.state_dict(), policy_name)
 
                 writer.add_scalar(
@@ -627,7 +640,8 @@ def main(cfg: ProjectedPPOConfig) -> None:
             if cfg.train.save_db:
                 if episode_count[0] % cfg.train.save_db_ep_interval == 0:
                     save_policy_projection_database(
-                        policy_projection_db, "policy_projection_db.pkl"
+                        policy_projection_db,
+                        "alpha_" + alpha_str + "_projection_db.pkl",
                     )
 
         # Bootstrap reward if not done (take value at next obs as end-of-rollout value)
@@ -813,16 +827,18 @@ def main(cfg: ProjectedPPOConfig) -> None:
 
     if cfg.train_common.save_model:
         # Save trained model
-        model_name = "models/rl-model-final.pt"
+        model_name = "alpha_" + alpha_str + "_models/rl-model-final.pt"
         torch.save(agent.state_dict(), model_name)
         # Save trained task policy separately as well
-        policy_name = "policies/rl-task-policy-final.pt"
+        policy_name = "alpha_" + alpha_str + "_policies/rl-task-policy-final.pt"
+        torch.save(agent.pi_task.state_dict(), policy_name)
+        policy_name = "alpha_" + alpha_str + "_task_policy.pt"
         torch.save(agent.pi_task.state_dict(), policy_name)
 
     # Save final policy projection database
     if cfg.train.save_db:
         save_policy_projection_database(
-            policy_projection_db, "policy_projection_db.pkl"
+            policy_projection_db, "alpha_" + alpha_str + "_projection_db.pkl"
         )
 
     # Close envs

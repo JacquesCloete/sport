@@ -37,7 +37,7 @@ pip install -e .
 
 I use Hydra and W&B to configure and log experiments. Trained policies and collected scenario databases from a run are saved in the corresponding run folder, which can be found in the `src/rl_vcf/outputs` folder. Run folders are labelled by date and time of start.
 
-Make sure that when running experiments that use policies and scenario databases generated from earlier steps, you are correctly selecting them in later steps! (Check input args)
+Make sure that when running experiments that use policies generated from earlier steps, you are correctly using them in later steps! (Check experiment script configs, and in particular, the directories and file names that are searched to get the policy weights). Also when plotting, make sure you've copied all the required data from the experiment runs into the right directories.
 
 ## Running Experiments
 Navigate to `cd src/rl_vcf` to run experiments.
@@ -63,13 +63,16 @@ Navigate to `cd src/rl_vcf` to run experiments.
 `python sac_safety_validate.py`
 (depending on your CPU/memory you may need to reduce `num_envs`; I suggest starting low and increasing until your CPU or memory usage is close to maxed out)
 
-3. Train task policy while maintaining a bound on failure probability: `python projected_ppo_finetune.py` (choose desired alpha by setting `train.alpha`)
+3. Train task policy while maintaining a bound on failure probability: `wandb sweep --project rl_vcf config/projected_ppo_finetune_sweep_fixed_env.yaml`
 
-4. Collect performance data for the projected policy over different alphas:
-`wandb sweep --project rl_vcf config/projected_ppo_validate_sweep_fixed_env.yaml` (remember to use the task policy you trained in the previous step!)
+4. Collect performance data for the projected policy over different alphas (using the task policy trained at the same alpha):
+`wandb sweep --project rl_vcf config/projected_ppo_validate_sweep_fixed_env_use_alpha_task.yaml`
 
 ## Plotting Experiments
 Notebooks can be found in `notebooks/envs`.
 
-### Experiment 1
 Plot graphs of performance data for the projected policy over different alphas: `comparing_validation_over_alphas_low_freq_fixed_env.ipynb`
+
+Plot episode trajectory distributions for the projected policy over different alphas: `episode_trajectory_distribution_visualization.ipynb`
+
+Plot policy projections over an episode trajectory: `plotting_policy_projection.ipynb` (requires first running `extract_frames_for_interpreting_policy_projection.ipynb`)

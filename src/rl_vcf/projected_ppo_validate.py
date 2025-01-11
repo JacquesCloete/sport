@@ -51,6 +51,8 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
     original_dir = hydra.utils.get_original_cwd()
     print(f"Working directory : {working_dir}")
 
+    alpha_str = str(float(cfg.alpha)).replace(".", "-")
+
     # print(f"Test : {run_name}")
 
     # Convert config into format suitable for wandb
@@ -107,6 +109,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                 cfg.validate_common.clip_action,
                 cfg.validate_common.normalize_observation,
                 cfg.validate_common.normalize_reward,
+                video_dir="_alpha_" + alpha_str,
                 env_seed=env_seed,
                 camera_name=cfg.validate_common.camera_name,
             )
@@ -393,9 +396,12 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                     % cfg.validate_common.save_db_ep_interval
                     == 0
                 ):
-                    save_scenario_database(scenario_db, "task_policy_db.pkl")
+                    save_scenario_database(
+                        scenario_db, "alpha_" + alpha_str + "_scenario_db.pkl"
+                    )
                     save_policy_projection_database(
-                        policy_projection_db, "policy_projection_db.pkl"
+                        policy_projection_db,
+                        "alpha_" + alpha_str + "_projection_db.pkl",
                     )
 
             pbar.update(max_num_scenarios_complete)
@@ -417,9 +423,9 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
 
     # Save final scenario database and policy projection database
     if cfg.validate_common.save_db:
-        save_scenario_database(scenario_db, "task_policy_db.pkl")
+        save_scenario_database(scenario_db, "alpha_" + alpha_str + "_scenario_db.pkl")
         save_policy_projection_database(
-            policy_projection_db, "policy_projection_db.pkl"
+            policy_projection_db, "alpha_" + alpha_str + "_projection_db.pkl"
         )
 
     # Close envs

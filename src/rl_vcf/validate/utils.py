@@ -131,7 +131,7 @@ class ScenarioDatabase:
                     estimate_epsilon_parallel(
                         conf=conf,
                         N=self.num_collected_scenarios,
-                        k=unique_ks,
+                        ks=unique_ks,
                         tol=tol,
                         cutoff=cutoff,
                         it_max=it_max,
@@ -1331,7 +1331,7 @@ def add_plotting_data_to_dicts(
     empirical_failure_rate[alpha] = (
         scenario_db.get_num_failures()[T]
     ) / scenario_db.num_collected_scenarios
-    posterior_bound_failure_rate[alpha] = scenario_db.get_selected_epsilons(T, conf)
+    posterior_bound_failure_rate[alpha] = scenario_db.get_selected_epsilons([T], conf)
 
 
 def remove_plotting_data_from_dicts(

@@ -1,4 +1,4 @@
-lr: 2.0e-4
+lr: 1.0e-4
 v_lr: 3.0e-4
 anneal_lr: false
 adam_epsilon: 1.0e-8
