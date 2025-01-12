@@ -15,3 +15,4 @@ check_max_policy_ratios: true
 load_policy_projection_db: false
 # load_policy_projection_db_path: "databases/policy_projection_db.pkl"
 load_policy_projection_db_path: "databases/policy_projection_db_low_freq.pkl"
+use_alpha_task: false

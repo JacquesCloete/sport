@@ -997,6 +997,7 @@ class PolicyProjectionDatabase:
         marker_edge_width: int = 2,
         extra_alphas: list[float] = [],
         fig_size_scale_factor: float = 7.0,
+        title: str | None = None,
     ) -> tuple[Figure, Axes]:
         """
         Plot policy projection data for the selected samples.
@@ -1124,6 +1125,8 @@ class PolicyProjectionDatabase:
                     ncol=7,
                 )
         fig.supxlabel(r"$\mu_{0}$ (Mean Forward Drive Force)")
+        if title is not None:
+            fig.suptitle(title)
         fig.tight_layout()
         return fig, axs
 
@@ -1354,9 +1357,13 @@ def remove_plotting_data_from_dicts(
 def plot_mean_std_time_taken(
     mean_successful_time_taken: dict[float, float],
     std_successful_time_taken: dict[float, float],
+    task_mean_successful_time_taken: dict[float, float] | None = None,
+    task_std_successful_time_taken: dict[float, float] | None = None,
 ) -> tuple[Figure, Axes]:
     """
     Plot the mean and standard deviation of episode length for successful scenarios across different alphas.
+
+    Optionally, plot the same for task policies trained under the alpha constraint.
     """
     # Extract alpha values and corresponding means and standard deviations for successful time taken
     alphas = np.array(list(mean_successful_time_taken.keys()))
@@ -1365,7 +1372,7 @@ def plot_mean_std_time_taken(
 
     # Plot the mean with standard deviations
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(alphas, means, color="blue", marker="x")
+    ax.plot(alphas, means, color="blue", marker="x", label=r"Pre-trained $\pi_{task}$")
     ax.fill_between(alphas, means - stds, means + stds, alpha=0.2, color="blue")
     ax.fill_between(
         alphas,
@@ -1375,6 +1382,36 @@ def plot_mean_std_time_taken(
         facecolor="none",
         edgecolor="blue",
     )
+    if (
+        task_mean_successful_time_taken is not None
+        and task_std_successful_time_taken is not None
+    ):
+        task_means = np.array(list(task_mean_successful_time_taken.values()))
+        task_stds = np.array(list(task_std_successful_time_taken.values()))
+        ax.plot(
+            alphas,
+            task_means,
+            color="green",
+            marker="x",
+            label=r"$\pi_{task}$ trained with $\alpha$ constraint",
+        )
+        ax.fill_between(
+            alphas,
+            task_means - task_stds,
+            task_means + task_stds,
+            alpha=0.2,
+            color="green",
+        )
+        ax.fill_between(
+            alphas,
+            task_means - task_stds,
+            task_means + task_stds,
+            alpha=0.5,
+            facecolor="none",
+            edgecolor="green",
+        )
+        ax.legend()
+
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_xlabel(r"$\alpha$")
     ax.set_ylabel("Mean \xB1 STD Episode Length on Success (time steps)")
@@ -1386,13 +1423,17 @@ def plot_mean_std_time_taken(
 
 def plot_failure_probs(
     epsilon: float,
+    T: int,
     empirical_failure_rate: dict[float, float],
     posterior_bound_failure_rate: dict[float, float],
-    T: int,
+    task_empirical_failure_rate: dict[float, float] | None = None,
+    task_posterior_bound_failure_rate: dict[float, float] | None = None,
     conf: float = 0.9999999,
 ) -> tuple[Figure, Axes]:
     """
     Plot the empirical failure rate and prior/posterior bound on failure probability across different alphas.
+
+    Optionally, plot the same for task policies trained under the alpha constraint.
     """
     # Extract alpha values and corresponding means and standard deviations for successful time taken
     alphas = np.array(list(empirical_failure_rate.keys()))
@@ -1401,17 +1442,44 @@ def plot_failure_probs(
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    scen_str = r"Prior Scenario-Based Bound ($\beta={b:.1E}$)".format(b=1 - conf)
+    scen_str = r"Prior Bound ($\beta={b:.1E}$)".format(b=1 - conf)
     # alpha_range = np.linspace(alphas.min(), alphas.max(), 1000)
     alpha_range = np.logspace(np.log10(alphas.min()), np.log10(alphas.max()), 1000)
     prior_bounds = np.minimum(epsilon * alpha_range**T, 1.0)
     ax.plot(alpha_range, prior_bounds, color="green", label=scen_str)
 
-    emp_str = r"Empirical Failure Rate ($\frac{{k}}{{N}}$)"
+    emp_str = r"Failure Rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
     ax.plot(alphas, failure_rates, color="blue", label=emp_str, marker="x")
 
-    scen_str = r"Posterior Scenario-Based Bound ($\beta={b:.1E}$)".format(b=1 - conf)
+    scen_str = r"Posterior Bound ($\beta={b:.1E}$) (pre-trained $\pi_{{task}}$)".format(
+        b=1 - conf
+    )
     ax.plot(alphas, posterior_bounds, color="red", label=scen_str, marker="x")
+
+    if (
+        task_empirical_failure_rate is not None
+        and task_posterior_bound_failure_rate is not None
+    ):
+        task_failure_rates = np.array(list(task_empirical_failure_rate.values()))
+        task_posterior_bounds = np.array(
+            list(task_posterior_bound_failure_rate.values())
+        )
+
+        task_emp_str = r"Failure Rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained with $\alpha$ constraint)"
+        ax.plot(
+            alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
+        )
+
+        task_scen_str = r"Posterior Bound ($\beta={b:.1E}$) ($\pi_{{task}}$ trained with $\alpha$ constraint)".format(
+            b=1 - conf
+        )
+        ax.plot(
+            alphas,
+            task_posterior_bounds,
+            color="orange",
+            label=task_scen_str,
+            marker="x",
+        )
 
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_ylim([0.0, 1.0])

@@ -98,6 +98,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
             cfg.validate_common.env_seed, int
         ), "env_seed must be type int"
         env_seed = cfg.validate_common.env_seed
+    prefix = "_alpha_task_" if cfg.use_alpha_task else "_alpha_"
     envs = safety_gymnasium.vector.SafetySyncVectorEnv(
         [
             make_env_safety(
@@ -109,7 +110,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                 cfg.validate_common.clip_action,
                 cfg.validate_common.normalize_observation,
                 cfg.validate_common.normalize_reward,
-                video_dir="_alpha_" + alpha_str,
+                video_dir=prefix + alpha_str,
                 env_seed=env_seed,
                 camera_name=cfg.validate_common.camera_name,
             )
@@ -192,7 +193,12 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
         abs_base_policy_path, weights_only=True, map_location=device
     )
 
-    abs_task_policy_path = os.path.join(original_dir, cfg.task_policy_path)
+    if cfg.use_alpha_task:
+        policy_dir, policy_file = os.path.split(cfg.task_policy_path)
+        alpha_task_policy_path = policy_dir + "/alpha_" + alpha_str + "_" + policy_file
+        abs_task_policy_path = os.path.join(original_dir, alpha_task_policy_path)
+    else:
+        abs_task_policy_path = os.path.join(original_dir, cfg.task_policy_path)
     assert os.path.exists(
         abs_task_policy_path
     ), "Task policy path {path} does not exist".format(path=abs_task_policy_path)
@@ -396,12 +402,13 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                     % cfg.validate_common.save_db_ep_interval
                     == 0
                 ):
+                    prefix = "alpha_task_" if cfg.use_alpha_task else "alpha_"
                     save_scenario_database(
-                        scenario_db, "alpha_" + alpha_str + "_scenario_db.pkl"
+                        scenario_db, prefix + alpha_str + "_scenario_db.pkl"
                     )
                     save_policy_projection_database(
                         policy_projection_db,
-                        "alpha_" + alpha_str + "_projection_db.pkl",
+                        prefix + alpha_str + "_projection_db.pkl",
                     )
 
             pbar.update(max_num_scenarios_complete)
@@ -423,9 +430,10 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
 
     # Save final scenario database and policy projection database
     if cfg.validate_common.save_db:
-        save_scenario_database(scenario_db, "alpha_" + alpha_str + "_scenario_db.pkl")
+        prefix = "alpha_task_" if cfg.use_alpha_task else "alpha_"
+        save_scenario_database(scenario_db, prefix + alpha_str + "_scenario_db.pkl")
         save_policy_projection_database(
-            policy_projection_db, "alpha_" + alpha_str + "_projection_db.pkl"
+            policy_projection_db, prefix + alpha_str + "_projection_db.pkl"
         )
 
     # Close envs

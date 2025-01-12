@@ -3,8 +3,8 @@ name: projected_ppo_finetune_low_freq_fixed_env_sweep
 method: grid
 parameters:
   train.alpha:
-    # values: [1.0, 1.05, 1.1, 1.2, 1.5, 2.0, 3.0, 5.0, 10.0, 20, 50.0, 100.0]
-    values: [100.0, 50.0, 20.0, 10.0, 5.0, 3.0, 2.0, 1.5, 1.2, 1.1, 1.05, 1.0]
+    values:
+      [1.0, 1.05, 1.1, 1.2, 1.35, 1.5, 2.0, 3.0, 5.0, 10.0, 20, 50.0, 100.0]
   train_common.gym_id:
     # value: "SafetyPointReachAvoidCurriculum5-v0"
     value: "SafetyPointReachAvoidLowFreqCurriculum5-v0"

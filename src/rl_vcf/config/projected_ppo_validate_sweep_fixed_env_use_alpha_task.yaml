@@ -3,7 +3,8 @@ name: projected_ppo_validate_low_freq_fixed_env_sweep_use_alpha_task
 method: grid
 parameters:
   alpha:
-    values: [1.0, 1.05, 1.1, 1.2, 1.5, 2.0, 3.0, 5.0, 10.0, 20, 50.0, 100.0]
+    values:
+      [1.0, 1.05, 1.1, 1.2, 1.35, 1.5, 2.0, 3.0, 5.0, 10.0, 20, 50.0, 100.0]
   use_alpha_task:
     value: true
   task_policy_path:

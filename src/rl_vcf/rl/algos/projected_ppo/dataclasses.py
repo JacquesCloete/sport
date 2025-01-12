@@ -61,5 +61,6 @@ class ProjectedPPOValidateConfig:
     check_max_policy_ratios: bool  # check max policy ratios during validation
     load_policy_projection_db: bool  # load policy projection database
     load_policy_projection_db_path: str  # relative path to policy projection database
+    use_alpha_task: bool  # use task policy trained while constrained to alpha
     validate_common: ValidateCommonConfig = field(default_factory=ValidateCommonConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
