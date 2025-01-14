@@ -199,7 +199,7 @@ class ScenarioDatabase:
         indices = np.arange(self.max_episode_length + 1)
 
         if plot_empirical:
-            for alpha in alphas:
+            for alpha in reversed(alphas):
                 alpha_array = alpha**indices
                 emp_str = r"$\alpha={a}, \frac{{k}}{{N}}$ (empirical)".format(
                     a=alpha,
@@ -215,7 +215,7 @@ class ScenarioDatabase:
                 cutoff=cutoff,
                 it_max=it_max,
             )
-            for alpha in alphas:
+            for alpha in reversed(alphas):
                 alpha_array = alpha**indices
                 if len(confs) > 1:
                     scen_str = r"$\alpha={a:}, \beta={b:.1E}$".format(
@@ -272,7 +272,7 @@ class ScenarioDatabase:
         """
         fig, ax = plt.subplots(figsize=(10, 5))
         peaks = {}
-        for bound in bounds:
+        for bound in reversed(bounds):
             log_alpha_array = np.maximum(
                 (
                     np.log(bound)
@@ -1547,7 +1547,7 @@ def plot_max_log_alpha(
     """
     fig, ax = plt.subplots(figsize=(10, 5))
     peaks = {}
-    for bound in bounds:
+    for bound in reversed(bounds):
         log_alpha_array = np.maximum(
             (
                 np.log(bound)
