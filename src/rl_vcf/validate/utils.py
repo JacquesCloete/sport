@@ -217,19 +217,31 @@ class ScenarioDatabase:
             )
             for alpha in alphas:
                 alpha_array = alpha**indices
-                scen_str = r"$\alpha={a}, \beta={b:.1E}$".format(b=1 - conf, a=alpha)
+                if len(confs) > 1:
+                    scen_str = r"$\alpha={a:}, \beta={b:.1E}$".format(
+                        b=1 - conf, a=alpha
+                    )
+                else:
+                    scen_str = r"$\alpha={a:}$".format(a=alpha)
                 ax.plot(np.minimum(epsilons * alpha_array, 1.0), label=scen_str)
         ax.set_xlim([0, self.max_episode_length])
         ax.set_ylim([0, 1])
         ax.set_xlabel("Time step, t")
-        ax.set_ylabel("Bound on failure probability, $\epsilon_{t}$")
+        ax.set_ylabel(
+            r"Prior bound on failure probability, $\epsilon_{task} = \epsilon_{base} \alpha^{T}$"
+        )
         ax.minorticks_on()
         ax.grid(which="major")
         ax.grid(which="minor", linestyle="--", alpha=0.5)
         ax.legend()
-        title_str = (
-            f"Policy Failure Probability Bounds, N={self.num_collected_scenarios}"
-        )
+        if len(confs) > 1:
+            title_str = r"N={scenarios} scenarios".format(
+                scenarios=self.num_collected_scenarios
+            )
+        else:
+            title_str = r"N={scenarios} scenarios, $\beta={b:.1E}$".format(
+                b=1 - conf, scenarios=self.num_collected_scenarios
+            )
         ax.title.set_text(title_str)
         return fig, ax
 
@@ -269,9 +281,7 @@ class ScenarioDatabase:
                 / np.arange(1, self.max_episode_length + 1),
                 0.0,
             )  # alpha >= 1.0 required
-            label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}, \beta={b:.1E}$".format(
-                b=1 - conf, bound=bound
-            )
+            label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}".format(bound=bound)
             ax.plot(
                 np.arange(1, self.max_episode_length + 1),
                 log_alpha_array,
@@ -284,9 +294,11 @@ class ScenarioDatabase:
         ax.set_ylim(bottom=0.0)
         ax.set_xlabel("Maximum Episode Length T (time steps)")
         ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
+        ax.minorticks_on()
         ax.grid(which="major")
         ax.grid(which="minor", linestyle="--", alpha=0.5)
         ax.legend(loc="upper right")
+        ax.set_title(r"$\beta={b:.1E}$".format(b=1 - conf))
 
         return fig, ax, peaks
 
@@ -1116,9 +1128,9 @@ class PolicyProjectionDatabase:
                         h[0],
                     ],
                     [
-                        "base",
-                        "task",
-                        "proj",
+                        r"$\pi_{base}$",
+                        r"$\pi_{task}$",
+                        r"$\pi_{proj}$",
                         r"policy ratio = $\alpha$",
                     ],
                     loc="outside lower right",
@@ -1359,11 +1371,15 @@ def plot_mean_std_time_taken(
     std_successful_time_taken: dict[float, float],
     task_mean_successful_time_taken: dict[float, float] | None = None,
     task_std_successful_time_taken: dict[float, float] | None = None,
+    bounds_with_alphas: dict[float, float] | None = None,
+    conf: float | None = None,
+    bound_label_x_offset: float = 0.01,
+    bound_label_y_offset: float = 0.01,
 ) -> tuple[Figure, Axes]:
     """
     Plot the mean and standard deviation of episode length for successful scenarios across different alphas.
 
-    Optionally, plot the same for task policies trained under the alpha constraint.
+    Optionally, plot the same for task policies trained under the alpha constraint, and vertical lines representing prior bound levels.
     """
     # Extract alpha values and corresponding means and standard deviations for successful time taken
     alphas = np.array(list(mean_successful_time_taken.keys()))
@@ -1411,11 +1427,32 @@ def plot_mean_std_time_taken(
             edgecolor="green",
         )
         ax.legend()
+    if bounds_with_alphas is not None and conf is not None:
+        flag = True
+        for bound, alpha in bounds_with_alphas.items():
+            if flag:
+                lbl = r"Prior bound $\epsilon_{{task}} = \epsilon_{{base}} \alpha^{{T}}$ ($\beta={b:.1E}$)".format(
+                    b=1 - conf
+                )
+                flag = False
+            else:
+                lbl = "_nolegend_"
+            ax.axvline(x=alpha, color="red", linestyle="--", label=lbl)
+            ax.text(
+                alpha + bound_label_x_offset,
+                min(np.min(means - stds), np.min(task_means - task_stds))
+                + bound_label_y_offset,
+                str(bound),
+                rotation=90,
+                color="red",
+            )
+        ax.legend()
 
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_xlabel(r"$\alpha$")
     ax.set_ylabel("Mean \xB1 STD Episode Length on Success (time steps)")
     ax.set_xscale("log")
+    ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
     return fig, ax
@@ -1442,16 +1479,18 @@ def plot_failure_probs(
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    scen_str = r"Prior Bound ($\beta={b:.1E}$)".format(b=1 - conf)
+    scen_str = r"Prior bound $\epsilon_{{task}} = \epsilon_{{base}} \alpha^{{T}}$ ($\beta={b:.1E}$)".format(
+        b=1 - conf
+    )
     # alpha_range = np.linspace(alphas.min(), alphas.max(), 1000)
     alpha_range = np.logspace(np.log10(alphas.min()), np.log10(alphas.max()), 1000)
     prior_bounds = np.minimum(epsilon * alpha_range**T, 1.0)
     ax.plot(alpha_range, prior_bounds, color="green", label=scen_str)
 
-    emp_str = r"Failure Rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
+    emp_str = r"Failure rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
     ax.plot(alphas, failure_rates, color="blue", label=emp_str, marker="x")
 
-    scen_str = r"Posterior Bound ($\beta={b:.1E}$) (pre-trained $\pi_{{task}}$)".format(
+    scen_str = r"Posterior bound ($\beta={b:.1E}$) (pre-trained $\pi_{{task}}$)".format(
         b=1 - conf
     )
     ax.plot(alphas, posterior_bounds, color="red", label=scen_str, marker="x")
@@ -1465,12 +1504,12 @@ def plot_failure_probs(
             list(task_posterior_bound_failure_rate.values())
         )
 
-        task_emp_str = r"Failure Rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained with $\alpha$ constraint)"
+        task_emp_str = r"Failure rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained with $\alpha$ constraint)"
         ax.plot(
             alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
         )
 
-        task_scen_str = r"Posterior Bound ($\beta={b:.1E}$) ($\pi_{{task}}$ trained with $\alpha$ constraint)".format(
+        task_scen_str = r"Posterior bound ($\beta={b:.1E}$) ($\pi_{{task}}$ trained with $\alpha$ constraint)".format(
             b=1 - conf
         )
         ax.plot(
@@ -1486,6 +1525,7 @@ def plot_failure_probs(
     ax.set_xlabel(r"$\alpha$")
     ax.set_ylabel("Failure Probability")
     ax.set_xscale("log")
+    ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
     ax.legend()
@@ -1516,9 +1556,7 @@ def plot_max_log_alpha(
             / np.arange(1, scenario_db.max_episode_length + 1),
             0.0,
         )  # alpha >= 1.0 required
-        label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}, \beta={b:.1E}$".format(
-            b=1 - conf, bound=bound
-        )
+        label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}$".format(bound=bound)
         ax.plot(
             np.arange(1, scenario_db.max_episode_length + 1),
             log_alpha_array,
@@ -1531,9 +1569,11 @@ def plot_max_log_alpha(
     ax.set_ylim(bottom=0.0)
     ax.set_xlabel("Maximum Episode Length T (time steps)")
     ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
+    ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
     ax.legend(loc="upper right")
+    ax.set_title(r"$\beta={b:.1E}$".format(b=1 - conf))
 
     return fig, ax, peaks
 

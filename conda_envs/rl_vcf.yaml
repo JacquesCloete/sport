@@ -35,14 +35,6 @@ dependencies:
       - gymnasium-robotics
       - safety-gymnasium
 
-  # LTLf- and DFA-related packages
-  - pygraphviz
-  - pip:
-      - sympy==1.13.1 # newer versions conflict with torch
-      - pylogics
-      - pythomata
-      - ltlf2dfa
-
   # Optimization (for rl-safety-filters)
   - cvxpy
 

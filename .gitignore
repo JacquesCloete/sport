@@ -13,3 +13,4 @@ __pycache__/
 /**/videos
 *.mp4
 *.pt
+*.svg
