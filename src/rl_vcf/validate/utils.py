@@ -611,7 +611,7 @@ class PolicyProjectionDatabase:
                         label="proj (ref)",
                     )
                 axs[2 * k].set_xlabel(r"$\mu_{0}$ (Mean Forward Drive Force)")
-                axs[2 * k].set_ylabel(r"$\mu_{1}$ (Mean Angular Velocity)")
+                axs[2 * k].set_ylabel(r"$\mu_{1}$ (Mean Turning Velocity)")
 
                 if k == 0:
                     axs[2 * k].set_title("Policy Means")
@@ -786,7 +786,7 @@ class PolicyProjectionDatabase:
                         label="proj (ref)",
                     )
                 axs[2 * k + 1].set_xlabel(r"$\sigma_{0}$ (STD Forward Drive Force)")
-                axs[2 * k + 1].set_ylabel(r"$\sigma_{1}$ (STD Angular Velocity)")
+                axs[2 * k + 1].set_ylabel(r"$\sigma_{1}$ (STD Turning Velocity)")
 
                 if k == 0:
                     axs[2 * k + 1].set_title("Policy Standard Deviations")
@@ -948,7 +948,7 @@ class PolicyProjectionDatabase:
                         label="proj (ref)",
                     )
                 if k == 0:
-                    axs[k].set_ylabel(r"$\mu_{1}$ (Mean Angular Velocity)")
+                    axs[k].set_ylabel(r"$\mu_{1}$ (Mean Turning Velocity)")
 
                 if k == 0:
                     if plot_ref_task:
@@ -1117,7 +1117,7 @@ class PolicyProjectionDatabase:
                 label="proj",
             )
             if k == 0:
-                axs[k + N].set_ylabel(r"$\mu_{1}$ (Mean Angular Velocity)")
+                axs[k + N].set_ylabel(r"$\mu_{1}$ (Mean Turning Velocity)")
 
             if k == 0:
                 fig.legend(
