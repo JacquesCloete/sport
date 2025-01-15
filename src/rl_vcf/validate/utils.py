@@ -1136,6 +1136,24 @@ class PolicyProjectionDatabase:
                     loc="outside lower right",
                     ncol=7,
                 )
+            # hack to get 'contour' to show up even if it's too thin
+            ETA_CONTOUR = 1e-3
+            if (
+                abs(self.mu_base[idx][0] - self.mu_proj[idx][0]) < ETA_CONTOUR
+                or abs(self.mu_base[idx][1] - self.mu_proj[idx][1]) < ETA_CONTOUR
+            ) and (
+                abs(self.mu_task[idx][0] - self.mu_proj[idx][0]) > ETA_CONTOUR
+                and abs(self.mu_task[idx][1] - self.mu_proj[idx][1]) > ETA_CONTOUR
+            ):
+                axs[k + N].autoscale(False)
+                diff_x = self.mu_base[idx][0] - self.mu_proj[idx][0]
+                diff_y = self.mu_base[idx][1] - self.mu_proj[idx][1]
+                axs[k + N].plot(
+                    (self.mu_base[idx][0] + diff_x, self.mu_base[idx][0] - diff_x),
+                    (self.mu_base[idx][1] + diff_y, self.mu_base[idx][1] - diff_y),
+                    "k-",
+                    zorder=1,
+                )
         fig.supxlabel(r"$\mu_{0}$ (Mean Forward Drive Force)")
         if title is not None:
             fig.suptitle(title)
