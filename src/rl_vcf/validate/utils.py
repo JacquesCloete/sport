@@ -226,9 +226,9 @@ class ScenarioDatabase:
                 ax.plot(np.minimum(epsilons * alpha_array, 1.0), label=scen_str)
         ax.set_xlim([0, self.max_episode_length])
         ax.set_ylim([0, 1])
-        ax.set_xlabel("Time step, t")
+        ax.set_xlabel("Maximum Episode Length, T (time steps)")
         ax.set_ylabel(
-            r"Prior bound on failure probability, $\epsilon_{task} = \epsilon_{base} \alpha^{T}$"
+            r"Prior Bound on Failure Probability, $\epsilon_{task} = \epsilon_{base}(T) \alpha^{T}$"
         )
         ax.minorticks_on()
         ax.grid(which="major")
@@ -281,7 +281,7 @@ class ScenarioDatabase:
                 / np.arange(1, self.max_episode_length + 1),
                 0.0,
             )  # alpha >= 1.0 required
-            label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}".format(bound=bound)
+            label = r"$\epsilon_{{base}}(T)\alpha^{{T}}={bound}".format(bound=bound)
             ax.plot(
                 np.arange(1, self.max_episode_length + 1),
                 log_alpha_array,
@@ -292,7 +292,7 @@ class ScenarioDatabase:
 
         ax.set_xlim([1, self.max_episode_length + 1])
         ax.set_ylim(bottom=0.0)
-        ax.set_xlabel("Maximum Episode Length T (time steps)")
+        ax.set_xlabel("Maximum Episode Length, T (time steps)")
         ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
         ax.minorticks_on()
         ax.grid(which="major")
@@ -1574,7 +1574,7 @@ def plot_max_log_alpha(
             / np.arange(1, scenario_db.max_episode_length + 1),
             0.0,
         )  # alpha >= 1.0 required
-        label = r"$\epsilon_{{T}}\alpha^{{T}}={bound}$".format(bound=bound)
+        label = r"$\epsilon_{{base}}(T)\alpha^{{T}}={bound}$".format(bound=bound)
         ax.plot(
             np.arange(1, scenario_db.max_episode_length + 1),
             log_alpha_array,
@@ -1585,7 +1585,7 @@ def plot_max_log_alpha(
 
     ax.set_xlim([1, scenario_db.max_episode_length + 1])
     ax.set_ylim(bottom=0.0)
-    ax.set_xlabel("Maximum Episode Length T (time steps)")
+    ax.set_xlabel("Maximum Episode Length, T (time steps)")
     ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
     ax.minorticks_on()
     ax.grid(which="major")
