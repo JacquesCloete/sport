@@ -228,7 +228,7 @@ class ScenarioDatabase:
         ax.set_ylim([0, 1])
         ax.set_xlabel("Maximum Episode Length, T (time steps)")
         ax.set_ylabel(
-            r"Prior Bound on Failure Probability, $\epsilon_{task} = \epsilon_{base}(T) \alpha^{T}$"
+            r"Prior Bound on Violation Probability, $\epsilon_{task} = \epsilon_{base}(T) \alpha^{T}$"
         )
         ax.minorticks_on()
         ax.grid(which="major")
@@ -293,7 +293,7 @@ class ScenarioDatabase:
         ax.set_xlim([1, self.max_episode_length + 1])
         ax.set_ylim(bottom=0.0)
         ax.set_xlabel("Maximum Episode Length, T (time steps)")
-        ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
+        ax.set_ylabel(r"Maximum Permitted log($\alpha$)")
         ax.minorticks_on()
         ax.grid(which="major")
         ax.grid(which="minor", linestyle="--", alpha=0.5)
@@ -1505,7 +1505,7 @@ def plot_failure_probs(
     prior_bounds = np.minimum(epsilon * alpha_range**T, 1.0)
     ax.plot(alpha_range, prior_bounds, color="green", label=scen_str)
 
-    emp_str = r"Failure rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
+    emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
     ax.plot(alphas, failure_rates, color="blue", label=emp_str, marker="x")
 
     scen_str = r"Posterior bound ($\beta={b:.1E}$) (pre-trained $\pi_{{task}}$)".format(
@@ -1522,7 +1522,7 @@ def plot_failure_probs(
             list(task_posterior_bound_failure_rate.values())
         )
 
-        task_emp_str = r"Failure rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained with $\alpha$ constraint)"
+        task_emp_str = r"Violation rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained with $\alpha$ constraint)"
         ax.plot(
             alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
         )
@@ -1541,7 +1541,7 @@ def plot_failure_probs(
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_ylim([0.0, 1.0])
     ax.set_xlabel(r"$\alpha$")
-    ax.set_ylabel("Failure Probability")
+    ax.set_ylabel("Violation Probability")
     ax.set_xscale("log")
     ax.minorticks_on()
     ax.grid(which="major")
@@ -1586,7 +1586,7 @@ def plot_max_log_alpha(
     ax.set_xlim([1, scenario_db.max_episode_length + 1])
     ax.set_ylim(bottom=0.0)
     ax.set_xlabel("Maximum Episode Length, T (time steps)")
-    ax.set_ylabel(r"Maximum Permitted ln($\alpha$)")
+    ax.set_ylabel(r"Maximum Permitted log($\alpha$)")
     ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
