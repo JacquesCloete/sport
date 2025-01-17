@@ -14,3 +14,4 @@ __pycache__/
 *.mp4
 *.pt
 *.svg
+*.csv

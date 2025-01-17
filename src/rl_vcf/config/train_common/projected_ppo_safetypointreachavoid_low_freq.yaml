@@ -1,6 +1,6 @@
 gym_id: "SafetyPointReachAvoidLowFreqResetGoalCurriculum5-v0"
 seed: 0
-total_timesteps: 30100
+total_timesteps: 30000
 torch_deterministic: true
 cuda: true
 capture_video: true
