@@ -53,7 +53,7 @@ cd Gymnasium    # Enter Gymnasium repo folder
 pip install .   # Install Gymnasium
 
 cd .. # Exit Gymnasium repo folder
-# Download this repo: https://anonymous.4open.science/r/safety-gymnasium-415D/
+# Download this repo: https://anonymous.4open.science/r/safety-gymnasium-7E5D/
 cd safety-gymnasium # Enter Safety Gymnasium repo folder
 pip install .   # Install Safety Gymnasium
 
