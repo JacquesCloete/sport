@@ -1,8 +1,11 @@
 # rl_vcf
-**R**einforcement **L**earning with scenario-based **V**alidation and projection-based **C**onstrained **F**inetuning.
+**SPoRt** - **S**afe **Po**licy **R**a**t**io : Certified Training and Deployment of Task Policies in Model-Free RL.
+
+(Repo originally named **R**einforcement **L**earning with scenario-based **V**alidation and projection-based **C**onstrained **F**inetuning, hence **rl-vcf**.)
 
 ## Setup and Installation
 
+### Standard (Non-Anynomous) Repo
 ```bash
 # Clone this repo
 git clone https://github.com/JacquesCloete/rl-vcf.git
@@ -33,6 +36,35 @@ cd rl-vcf
 pip install -e .
 ```
 
+### Anonymous Repo for Reviewers
+```bash
+# Download this repo: https://anonymous.4open.science/r/rl-vcf-3C26/
+cd rl-vcf   # Enter rl-vcf repo folder
+
+# Create a conda environment from the provided config file
+conda env create --file conda_envs/rl_vcf.yaml  # Create conda env
+conda activate rl_vcf   # Activate conda env
+
+# Clone and install Jacques' forks of Gymnasium and Safety Gymnasium
+# (remember to have the rl_vcf conda environment activated before doing this!)
+cd .. # Exit repo folder
+# Download this repo: https://anonymous.4open.science/r/Gymnasium-51B2/
+cd Gymnasium    # Enter Gymnasium repo folder
+pip install .   # Install Gymnasium
+
+cd .. # Exit Gymnasium repo folder
+# Download this repo: https://anonymous.4open.science/r/safety-gymnasium-415D/
+cd safety-gymnasium # Enter Safety Gymnasium repo folder
+pip install .   # Install Safety Gymnasium
+
+# Install this project
+# (remember to have the rl_vcf conda environment activated before doing this!)
+cd ..   # Exit Safety Gymnasium repo folder
+cd rl-vcf   # Enter rl-vcf repo folder
+pip install -e .    # Install rl-vcf
+```
+
+
 ## Experiments
 
 I use Hydra and W&B to configure and log experiments. Trained policies and collected scenario databases from a run are saved in the corresponding run folder, which can be found in the `src/rl_vcf/outputs` folder. Run folders are labelled by date and time of start.
@@ -40,7 +72,7 @@ I use Hydra and W&B to configure and log experiments. Trained policies and colle
 Make sure that when running experiments that use policies generated from earlier steps, you are correctly using them in later steps! (Check experiment script configs, and in particular, the directories and file names that are searched to get the policy weights). Also when plotting, make sure you've copied all the required data from the experiment runs into the right directories.
 
 ## Running Experiments
-Navigate to `cd src/rl_vcf` to run experiments.
+Navigate to `cd src/rl_vcf` to run experiments. You should run experiments from that directory.
 
 ### Experiment 1
 
