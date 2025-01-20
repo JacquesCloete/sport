@@ -235,11 +235,11 @@ class ScenarioDatabase:
         ax.grid(which="minor", linestyle="--", alpha=0.5)
         ax.legend()
         if len(confs) > 1:
-            title_str = r"N={scenarios} scenarios".format(
+            title_str = r"N={scenarios} Scenarios".format(
                 scenarios=self.num_collected_scenarios
             )
         else:
-            title_str = r"N={scenarios} scenarios, $\beta={b:.1E}$".format(
+            title_str = r"N={scenarios} Scenarios, $\beta={b:.1E}$".format(
                 b=1 - conf, scenarios=self.num_collected_scenarios
             )
         ax.title.set_text(title_str)
@@ -1427,7 +1427,7 @@ def plot_mean_std_time_taken(
             task_means,
             color="green",
             marker="x",
-            label=r"$\pi_{task}$ trained with $\alpha$ constraint",
+            label=r"$\pi_{task}$ trained using P3O",
         )
         ax.fill_between(
             alphas,
@@ -1522,12 +1522,14 @@ def plot_failure_probs(
             list(task_posterior_bound_failure_rate.values())
         )
 
-        task_emp_str = r"Violation rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained with $\alpha$ constraint)"
+        task_emp_str = (
+            r"Violation rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained using P3O)"
+        )
         ax.plot(
             alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
         )
 
-        task_scen_str = r"Posterior bound ($\beta={b:.1E}$) ($\pi_{{task}}$ trained with $\alpha$ constraint)".format(
+        task_scen_str = r"Posterior bound ($\beta={b:.1E}$) ($\pi_{{task}}$ trained using P3O)".format(
             b=1 - conf
         )
         ax.plot(
