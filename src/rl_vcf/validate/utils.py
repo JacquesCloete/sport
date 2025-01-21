@@ -190,11 +190,14 @@ class ScenarioDatabase:
         tol: float = 1e-5,
         cutoff: float = 1.0,
         it_max: int = 100,
+        fig_size_scale_factor: float = 1.0,
     ) -> tuple[Figure, Axes]:
         """
         Create a plot of epsilon for each timestep.
         """
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(
+            figsize=(10 * fig_size_scale_factor, 5 * fig_size_scale_factor)
+        )
 
         indices = np.arange(self.max_episode_length + 1)
 
@@ -264,13 +267,16 @@ class ScenarioDatabase:
         bounds: Container[float],
         conf: float = 0.9999999,
         cutoff: float = 1.0,
+        fig_size_scale_factor: float = 1.0,
     ) -> tuple[Figure, Axes, dict[float, tuple[int, float]]]:
         """
         Plot the maximum permitted log-alpha over all possible maximum episode lengths T for each specified failure bound.
 
         Also returns the locations of the peaks for each bound (i.e. the T/log-alpha pair that permits the largest alpha for the bound).
         """
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(
+            figsize=(10 * fig_size_scale_factor, 5 * fig_size_scale_factor)
+        )
         peaks = {}
         for bound in reversed(bounds):
             log_alpha_array = np.maximum(
@@ -1118,7 +1124,9 @@ class PolicyProjectionDatabase:
             )
             if k == 0:
                 axs[k + N].set_ylabel(r"$\mu_{1}$ (Mean Turning Velocity)")
-
+            axs[k + N].minorticks_on()
+            axs[k + N].grid(which="major")
+            axs[k + N].grid(which="minor", linestyle="--", alpha=0.5)
             if k == 0:
                 fig.legend(
                     [
@@ -1393,6 +1401,7 @@ def plot_mean_std_time_taken(
     conf: float | None = None,
     bound_label_x_offset: float = 0.01,
     bound_label_y_offset: float = 0.01,
+    fig_size_scale_factor: float = 1.0,
 ) -> tuple[Figure, Axes]:
     """
     Plot the mean and standard deviation of episode length for successful scenarios across different alphas.
@@ -1405,7 +1414,9 @@ def plot_mean_std_time_taken(
     stds = np.array(list(std_successful_time_taken.values()))
 
     # Plot the mean with standard deviations
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(
+        figsize=(10 * fig_size_scale_factor, 5 * fig_size_scale_factor)
+    )
     ax.plot(alphas, means, color="blue", marker="x", label=r"Pre-trained $\pi_{task}$")
     ax.fill_between(alphas, means - stds, means + stds, alpha=0.2, color="blue")
     ax.fill_between(
@@ -1427,7 +1438,7 @@ def plot_mean_std_time_taken(
             task_means,
             color="green",
             marker="x",
-            label=r"$\pi_{task}$ trained using P3O",
+            label=r"P3O",
         )
         ax.fill_between(
             alphas,
@@ -1449,9 +1460,7 @@ def plot_mean_std_time_taken(
         flag = True
         for bound, alpha in bounds_with_alphas.items():
             if flag:
-                lbl = r"Prior bound $\epsilon_{{task}} = \epsilon_{{base}} \alpha^{{T}}$ ($\beta={b:.1E}$)".format(
-                    b=1 - conf
-                )
+                lbl = r"Prior bound $\epsilon_{task} = \epsilon_{base} \alpha^{{T}}$"
                 flag = False
             else:
                 lbl = "_nolegend_"
@@ -1464,15 +1473,16 @@ def plot_mean_std_time_taken(
                 rotation=90,
                 color="red",
             )
-        ax.legend()
+        ax.legend(loc="best")
 
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_xlabel(r"$\alpha$")
-    ax.set_ylabel("Mean \xB1 STD Episode Length on Success (time steps)")
+    ax.set_ylabel("Mean \xB1 STD Episode Length on Success (steps)")
     ax.set_xscale("log")
     ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
+    fig.tight_layout()
     return fig, ax
 
 
@@ -1484,6 +1494,7 @@ def plot_failure_probs(
     task_empirical_failure_rate: dict[float, float] | None = None,
     task_posterior_bound_failure_rate: dict[float, float] | None = None,
     conf: float = 0.9999999,
+    fig_size_scale_factor: float = 1.0,
 ) -> tuple[Figure, Axes]:
     """
     Plot the empirical failure rate and prior/posterior bound on failure probability across different alphas.
@@ -1495,11 +1506,11 @@ def plot_failure_probs(
     failure_rates = np.array(list(empirical_failure_rate.values()))
     posterior_bounds = np.array(list(posterior_bound_failure_rate.values()))
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    scen_str = r"Prior bound $\epsilon_{{task}} = \epsilon_{{base}} \alpha^{{T}}$ ($\beta={b:.1E}$)".format(
-        b=1 - conf
+    fig, ax = plt.subplots(
+        figsize=(10 * fig_size_scale_factor, 5 * fig_size_scale_factor)
     )
+
+    scen_str = r"Prior bound $\epsilon_{task} = \epsilon_{base} \alpha^{T}$"
     # alpha_range = np.linspace(alphas.min(), alphas.max(), 1000)
     alpha_range = np.logspace(np.log10(alphas.min()), np.log10(alphas.max()), 1000)
     prior_bounds = np.minimum(epsilon * alpha_range**T, 1.0)
@@ -1508,9 +1519,7 @@ def plot_failure_probs(
     emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
     ax.plot(alphas, failure_rates, color="blue", label=emp_str, marker="x")
 
-    scen_str = r"Posterior bound ($\beta={b:.1E}$) (pre-trained $\pi_{{task}}$)".format(
-        b=1 - conf
-    )
+    scen_str = r"Posterior bound (pre-trained $\pi_{task}$)"
     ax.plot(alphas, posterior_bounds, color="red", label=scen_str, marker="x")
 
     if (
@@ -1522,16 +1531,12 @@ def plot_failure_probs(
             list(task_posterior_bound_failure_rate.values())
         )
 
-        task_emp_str = (
-            r"Violation rate ($\frac{{k}}{{N}}$) ($\pi_{task}$ trained using P3O)"
-        )
+        task_emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (P3O)"
         ax.plot(
             alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
         )
 
-        task_scen_str = r"Posterior bound ($\beta={b:.1E}$) ($\pi_{{task}}$ trained using P3O)".format(
-            b=1 - conf
-        )
+        task_scen_str = r"Posterior bound (P3O)"
         ax.plot(
             alphas,
             task_posterior_bounds,
@@ -1548,7 +1553,10 @@ def plot_failure_probs(
     ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
-    ax.legend()
+    if alphas.max() > 10:
+        ax.legend(loc="upper center")
+    else:
+        ax.legend(loc="best")
     return fig, ax
 
 
@@ -1557,6 +1565,7 @@ def plot_max_log_alpha(
     bounds: Container[float],
     conf: float = 0.9999999,
     cutoff: float = 1.0,
+    fig_size_scale_factor: float = 1.0,
 ) -> tuple[Figure, Axes, dict[float, tuple[int, float]]]:
     """
     LEGACY FUNCTION FOR OLD SCENARIO DATABASES -- now a method of ScenarioDatabase
@@ -1565,7 +1574,9 @@ def plot_max_log_alpha(
 
     Also returns the locations of the peaks for each bound (i.e. the T/log-alpha pair that permits the largest alpha for the bound).
     """
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(
+        figsize=(10 * fig_size_scale_factor, 5 * fig_size_scale_factor)
+    )
     peaks = {}
     for bound in reversed(bounds):
         log_alpha_array = np.maximum(
