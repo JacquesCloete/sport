@@ -35,7 +35,7 @@ dependencies:
       - gymnasium-robotics
       - safety-gymnasium
 
-  # Optimization (for rl-safety-filters)
+  # Optimization
   - cvxpy
 
   # Device select
