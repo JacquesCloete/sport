@@ -1438,7 +1438,7 @@ def plot_mean_std_time_taken(
             task_means,
             color="green",
             marker="x",
-            label=r"P3O",
+            label=r"Projected PPO",
         )
         ax.fill_between(
             alphas,
@@ -1531,12 +1531,12 @@ def plot_failure_probs(
             list(task_posterior_bound_failure_rate.values())
         )
 
-        task_emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (P3O)"
+        task_emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (Projected PPO)"
         ax.plot(
             alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
         )
 
-        task_scen_str = r"Posterior bound (P3O)"
+        task_scen_str = r"Posterior bound (Projected PPO)"
         ax.plot(
             alphas,
             task_posterior_bounds,
