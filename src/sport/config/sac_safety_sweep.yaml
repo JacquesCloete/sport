@@ -1,0 +1,19 @@
+program: sac_safety_train.py
+name: sac_safety_sweep
+method: grid
+metric:
+  goal: maximize
+  name: charts/goal_achieved
+parameters:
+  train.q_lr:
+    values: [1e-3, 7e-4, 3e-4, 7e-5]
+  train_common.gym_id:
+    value: "SafetyPointReachAvoidLowFreqCurriculum1-v0"
+  wandb.group:
+    value: "sac_safety_sweep"
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}

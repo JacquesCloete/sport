@@ -1,6 +1,0 @@
-defaults:
-  - hydra: chdir
-  - train: ppo_halfcheetah
-  - train_common: ppo_halfcheetah
-  - network: ppo
-  - wandb: rl_vcf_train

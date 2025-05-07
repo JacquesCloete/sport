@@ -1,0 +1,6 @@
+defaults:
+  - hydra: chdir
+  # - validate_common: sac_safetypointreachavoid
+  # - wandb: sport_validate
+  - validate_common: sac_safetypointreachavoid_low_freq
+  - wandb: sport_validate_low_freq

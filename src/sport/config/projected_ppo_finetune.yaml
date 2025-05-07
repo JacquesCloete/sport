@@ -1,0 +1,10 @@
+defaults:
+  - hydra: chdir
+  # - train: projected_ppo_safetypointreachavoid
+  # - train_common: projected_ppo_safetypointreachavoid
+  # - network: sac
+  # - wandb: sport_finetune
+  - train: projected_ppo_safetypointreachavoid_low_freq
+  - train_common: projected_ppo_safetypointreachavoid_low_freq
+  - network: sac
+  - wandb: sport_finetune_low_freq

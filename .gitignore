@@ -3,7 +3,7 @@ __pycache__/
 /**/multirun
 /**/outputs
 /**/wandb
-!/src/rl_vcf/config/wandb
+!/src/sport/config/wandb
 /build
 /dist
 /**/*.egg-info

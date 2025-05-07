@@ -3,11 +3,11 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rl_vcf"
-version = "0.0.1"
+name = "sport"
+version = "1.0.0"
 authors = [{ name = "Jacques Cloete", email = "jacques@robots.ox.ac.uk" }]
 maintainers = [{ name = "Jacques Cloete", email = "jacques@robots.ox.ac.uk" }]
-description = "Reinforcement Learning with scenario-based Validation and projection-based Constrained Finetuning."
+description = "SPoRt - Safe Policy Ratio: Certified Training and Deployment of Task Policies in Model-Free RL."
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
