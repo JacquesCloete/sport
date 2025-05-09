@@ -15,11 +15,13 @@ from sport.validate.dataclasses import ValidateCommonConfig
 class TrainSACConfig:
     policy_lr: float  # policy learning rate
     q_lr: float  # q-network learning rate
+    q_weight_decay: float  # q-network weight decay
     adam_epsilon: float  # adam optimizer epsilon
     gamma: float  # discount factor
     buffer_size: int  # replay buffer size
     batch_size: int  # batch size of samples from replay buffer
     burn_in: int  # burn-in before learning starts
+    burn_in_train_critic: bool  # whether to train critic during burn-in
     ent_coeff: float  # entropy regularization coefficient
     autotune: bool  # autotune entropy regularization coefficient
     policy_freq: int  # policy update frequency
@@ -34,6 +36,8 @@ class TrainSACConfig:
     curriculum_levels: list[int]  # curriculum levels
     curriculum_thresholds: list[float]  # curriculum success rate thresholds
     curriculum_window: int  # curriculum success rate checking window size
+    expectile_loss: bool  # use expectile loss
+    expectile: float  # expectile parameter
 
 
 @dataclass

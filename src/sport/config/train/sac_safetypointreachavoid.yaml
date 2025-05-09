@@ -1,10 +1,12 @@
 policy_lr: 2.0e-4
 q_lr: 7.0e-4
+q_weight_decay: 0.0
 adam_epsilon: 1.0e-8
 gamma: 0.99
 buffer_size: 1000000
 batch_size: 512
 burn_in: 5000
+burn_in_train_critic: false
 ent_coeff: 0.2
 autotune: true
 policy_freq: 2
@@ -21,3 +23,5 @@ curriculum_levels: [1, 2, 3, 4, 5]
 # curriculum_thresholds: [0.95, 0.95, 0.95, 0.95, 1.0]
 curriculum_thresholds: [0.95, 0.95, 0.95, 0.95, 1.01]
 curriculum_window: 100
+expectile_loss: false
+expectile: 0.5
