@@ -149,7 +149,9 @@ def main(cfg: SACConfig) -> None:
 
     # Create optimizers
     policy_optimizer = optim.Adam(agent.pi.parameters(), lr=cfg.train.policy_lr)
-    q_optimizer = optim.Adam(q_params, lr=cfg.train.q_lr)
+    q_optimizer = optim.Adam(
+        q_params, lr=cfg.train.q_lr, weight_decay=cfg.train.q_weight_decay
+    )
 
     # Automatic entropy tuning
     if cfg.train.autotune:
@@ -168,11 +170,19 @@ def main(cfg: SACConfig) -> None:
             torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
             * cfg.train.targ_ent_coeff
         )
-        log_ent_coeff = torch.zeros(1, requires_grad=True, device=device)
+        log_ent_coeff = torch.tensor(
+            [np.log(cfg.train.ent_coeff)], requires_grad=True, device=device
+        )
         ent_coeff = log_ent_coeff.exp().item()
-        ent_coeff_optimizer = optim.Adam([log_ent_coeff], lr=cfg.train.q_lr)
+        ent_coeff_optimizer = optim.Adam(
+            [log_ent_coeff], lr=cfg.train.q_lr
+        )  # Note: uses q_lr
     else:
         ent_coeff = cfg.train.ent_coeff
+
+    # Initialize losses to avoid potential undefined variable error during logging
+    policy_loss = torch.zeros(1, device=device)
+    ent_coeff_loss = torch.zeros(1, device=device)
 
     # Not sure why this is in the cleanrl code:
     # envs.single_observation_space.dtype = np.float32
@@ -280,7 +290,7 @@ def main(cfg: SACConfig) -> None:
         obs = torch.Tensor(next_obs).to(device)
 
         # ALGO LOGIC: training
-        if global_step > cfg.train.burn_in:
+        if global_step > cfg.train.burn_in or cfg.train.burn_in_train_critic:
 
             # Sample batch
             if cfg.train.per:
@@ -303,7 +313,6 @@ def main(cfg: SACConfig) -> None:
                 data = replay_buffer.sample_batch(cfg.train.batch_size)
 
             # Q networks update
-            data = replay_buffer.sample_batch(cfg.train.batch_size)
             with torch.no_grad():
                 next_pi, next_log_pi = agent.pi.forward(data["obs2"])
                 q1_value_next_targ = agent_targ.q1.forward(data["obs2"], next_pi)
@@ -332,8 +341,22 @@ def main(cfg: SACConfig) -> None:
                 q2_loss = (td_error_q2**2 * data["wgt"]).mean()
             else:
                 # Q network loss functions
-                q1_loss = torch.nn.functional.mse_loss(q1_value, q_value_targ)
-                q2_loss = torch.nn.functional.mse_loss(q2_value, q_value_targ)
+                if cfg.train.expectile_loss:
+                    # Expectile loss
+                    q1_diff = q_value_targ - q1_value
+                    q1_weight = torch.where(
+                        q1_diff > 0, cfg.train.expectile, 1 - cfg.train.expectile
+                    )
+                    q1_loss = (q1_weight * q1_diff.pow(2)).mean()
+                    q2_diff = q_value_targ - q2_value
+                    q2_weight = torch.where(
+                        q2_diff > 0, cfg.train.expectile, 1 - cfg.train.expectile
+                    )
+                    q2_loss = (q2_weight * q2_diff.pow(2)).mean()
+                else:
+                    # MSE loss
+                    q1_loss = torch.nn.functional.mse_loss(q1_value, q_value_targ)
+                    q2_loss = torch.nn.functional.mse_loss(q2_value, q_value_targ)
 
             q_loss = q1_loss + q2_loss
 
@@ -343,7 +366,10 @@ def main(cfg: SACConfig) -> None:
             q_optimizer.step()
 
             # Policy update
-            if global_step % cfg.train.policy_freq == 0:  # delayed update from TD3
+            if (
+                global_step > cfg.train.burn_in
+                and global_step % cfg.train.policy_freq == 0
+            ):  # delayed update from TD3
 
                 # Freeze Q networks so you don't waste computational effort
                 # computing gradients for them during the policy update
@@ -390,7 +416,10 @@ def main(cfg: SACConfig) -> None:
                     p.requires_grad = True
 
             # Target Q networks update
-            if global_step % cfg.train.targ_net_freq == 0:
+            if (
+                global_step > cfg.train.burn_in
+                and global_step % cfg.train.targ_net_freq == 0
+            ):
                 for param, targ_param in zip(
                     agent.q1.parameters(), agent_targ.q1.parameters()
                 ):
@@ -408,7 +437,10 @@ def main(cfg: SACConfig) -> None:
 
             # Write training info to tensorboard
             # Note: guard in case there hasn't been a policy update yet
-            if (global_step - cfg.train.burn_in) >= cfg.train.policy_freq:
+            if (
+                global_step > cfg.train.burn_in
+                and (global_step - cfg.train.burn_in) >= cfg.train.policy_freq
+            ) or cfg.train.burn_in_train_critic:
                 writer.add_scalar(
                     "losses/q1_value", q1_value.mean().item(), global_step=global_step
                 )
@@ -429,13 +461,12 @@ def main(cfg: SACConfig) -> None:
                 writer.add_scalar(
                     "losses/ent_coeff", ent_coeff, global_step=global_step
                 )
-                # print("SPS : ", int(global_step / (time.time() - start_time)))
                 writer.add_scalar(
                     "charts/sps",
                     int(global_step / (time.time() - start_time)),
                     global_step=global_step,
                 )
-                if cfg.train.autotune:
+                if cfg.train.autotune and global_step > cfg.train.burn_in:
                     writer.add_scalar(
                         "losses/ent_coeff_loss",
                         ent_coeff_loss.item(),
