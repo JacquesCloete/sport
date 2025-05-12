@@ -92,7 +92,8 @@ def make_env_safety(
     normalize_reward: bool = False,
     video_dir: str = "",
     env_seed: int | None = None,
-    camera_name: str = "fixedfar",
+    camera_id: int | None = None,
+    camera_name: str | None = "fixedfar",
 ) -> gym.Env:
     """Create the environment."""
 
@@ -102,6 +103,7 @@ def make_env_safety(
         env = safety_gymnasium.make(
             gym_id,
             render_mode=render_mode,  # need to set render mode for video recording
+            camera_id=camera_id,
             camera_name=camera_name,
         )
         # wrap to gymnasium

@@ -112,6 +112,7 @@ def main(cfg: ProjectedPPOValidateConfig) -> None:
                 cfg.validate_common.normalize_reward,
                 video_dir=prefix + alpha_str,
                 env_seed=env_seed,
+                camera_id=cfg.validate_common.camera_id,
                 camera_name=cfg.validate_common.camera_name,
             )
             for i in range(cfg.validate_common.num_envs)

@@ -112,6 +112,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.normalize_reward,
                 video_dir="_alpha_" + alpha_str,
                 env_seed=env_seed,
+                camera_id=cfg.train_common.camera_id,
                 camera_name=cfg.train_common.camera_name,
             )
             for i in range(cfg.train_common.num_envs)
@@ -482,6 +483,7 @@ def main(cfg: ProjectedPPOConfig) -> None:
                 cfg.train_common.normalize_reward,
                 video_dir="_alpha_" + alpha_str,
                 env_seed=env_seed,
+                camera_id=cfg.train_common.camera_id,
                 camera_name=cfg.train_common.camera_name,
             )
             for i in range(cfg.train_common.num_envs)

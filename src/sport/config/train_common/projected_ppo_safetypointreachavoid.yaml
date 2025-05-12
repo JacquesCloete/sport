@@ -5,6 +5,7 @@ torch_deterministic: true
 cuda: true
 capture_video: true
 capture_video_ep_interval: 25
+camera_id: null
 camera_name: "fixednear"
 num_envs: 1
 clip_action: false
