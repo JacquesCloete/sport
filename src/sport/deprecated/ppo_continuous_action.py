@@ -17,7 +17,7 @@ from torch.distributions import Normal
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from rl_vcf.rl.utils.make_env import make_env
+from sport.rl.utils import make_env
 
 
 def layer_init(layer: nn.Linear, std=np.sqrt(2), bias_const=0.0) -> nn.Linear:
