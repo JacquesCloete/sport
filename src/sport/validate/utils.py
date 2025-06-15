@@ -1097,7 +1097,7 @@ class PolicyProjectionDatabase:
                 colors="k",
             )
             h, l = cs.legend_elements()
-            axs[k + N].clabel(cs, inline=True, fontsize=10)
+            # axs[k + N].clabel(cs, inline=True, fontsize=12)
             base_marker = axs[k + N].plot(
                 self.mu_base[idx][0],
                 self.mu_base[idx][1],
@@ -1117,14 +1117,19 @@ class PolicyProjectionDatabase:
             proj_marker = axs[k + N].plot(
                 self.mu_proj[idx][0],
                 self.mu_proj[idx][1],
-                "m+",
+                marker="+",
+                color="green",
                 markersize=marker_size,
                 markeredgewidth=marker_edge_width,
                 label="proj",
+                linestyle="None",
             )
             if k == 0:
                 axs[k + N].set_ylabel(r"$\mu_{1}$ (Mean Turning Velocity)")
             axs[k + N].minorticks_on()
+            if abs(self.mu_base[idx][1] - self.mu_task[idx][1]) < 0.4:
+                axs[k + N].xaxis.set_major_locator(plt.MultipleLocator(0.1))
+                axs[k + N].yaxis.set_major_locator(plt.MultipleLocator(0.1))
             axs[k + N].grid(which="major")
             axs[k + N].grid(which="minor", linestyle="--", alpha=0.5)
             if k == 0:
@@ -1143,6 +1148,7 @@ class PolicyProjectionDatabase:
                     ],
                     loc="outside lower right",
                     ncol=7,
+                    columnspacing=0.8,  # Adjust this value as needed
                 )
             # hack to get 'contour' to show up even if it's too thin
             ETA_CONTOUR = 1e-3
@@ -1423,7 +1429,7 @@ def plot_mean_std_time_taken(
         alphas,
         means - stds,
         means + stds,
-        alpha=0.5,
+        alpha=1.0,
         facecolor="none",
         edgecolor="blue",
     )
@@ -1451,7 +1457,7 @@ def plot_mean_std_time_taken(
             alphas,
             task_means - task_stds,
             task_means + task_stds,
-            alpha=0.5,
+            alpha=1.0,
             facecolor="none",
             edgecolor="green",
         )
@@ -1477,11 +1483,15 @@ def plot_mean_std_time_taken(
 
     ax.set_xlim([alphas.min(), alphas.max()])
     ax.set_xlabel(r"$\alpha$")
-    ax.set_ylabel("Mean \xb1 STD Episode Length on Success (steps)")
+    ax.set_ylabel("Mean \xb1 STD Episode Length on Success       ")
     ax.set_xscale("log")
     ax.minorticks_on()
     ax.grid(which="major")
     ax.grid(which="minor", linestyle="--", alpha=0.5)
+    # hack to remove scientific notation when plotting close-up
+    if alphas.max() < 10.0:
+        ax.xaxis.set_major_formatter(plt.ScalarFormatter())
+        ax.xaxis.set_minor_formatter(plt.ScalarFormatter())
     fig.tight_layout()
     return fig, ax
 
@@ -1514,13 +1524,20 @@ def plot_failure_probs(
     # alpha_range = np.linspace(alphas.min(), alphas.max(), 1000)
     alpha_range = np.logspace(np.log10(alphas.min()), np.log10(alphas.max()), 1000)
     prior_bounds = np.minimum(epsilon * alpha_range**T, 1.0)
-    ax.plot(alpha_range, prior_bounds, color="green", label=scen_str)
+    ax.plot(alpha_range, prior_bounds, color="red", label=scen_str, linestyle="--")
 
     emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (pre-trained $\pi_{task}$)"
     ax.plot(alphas, failure_rates, color="blue", label=emp_str, marker="x")
 
     scen_str = r"Posterior bound (pre-trained $\pi_{task}$)"
-    ax.plot(alphas, posterior_bounds, color="red", label=scen_str, marker="x")
+    ax.plot(
+        alphas,
+        posterior_bounds,
+        color="blue",
+        label=scen_str,
+        marker="x",
+        linestyle="--",
+    )
 
     if (
         task_empirical_failure_rate is not None
@@ -1533,16 +1550,21 @@ def plot_failure_probs(
 
         task_emp_str = r"Violation rate ($\frac{{k}}{{N}}$) (Projected PPO)"
         ax.plot(
-            alphas, task_failure_rates, color="cyan", label=task_emp_str, marker="x"
+            alphas,
+            task_failure_rates,
+            color="green",
+            label=task_emp_str,
+            marker="x",
         )
 
         task_scen_str = r"Posterior bound (Projected PPO)"
         ax.plot(
             alphas,
             task_posterior_bounds,
-            color="orange",
+            color="green",
             label=task_scen_str,
             marker="x",
+            linestyle="--",
         )
 
     ax.set_xlim([alphas.min(), alphas.max()])
@@ -1557,6 +1579,10 @@ def plot_failure_probs(
         ax.legend(loc="upper center")
     else:
         ax.legend(loc="best")
+    # hack to remove scientific notation when plotting close-up
+    if alphas.max() < 10.0:
+        ax.xaxis.set_major_formatter(plt.ScalarFormatter())
+        ax.xaxis.set_minor_formatter(plt.ScalarFormatter())
     return fig, ax
 
 
